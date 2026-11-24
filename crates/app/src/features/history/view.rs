@@ -498,33 +498,49 @@ impl HistoryView {
                 })
         };
 
+        // The sidebar is narrower than a typical tiled pane. Keep the scope
+        // and filter on their own row, and wrap actions rather than clip them.
+        let narrow = fit == Fit::Narrow;
+        let actions = h_flex()
+            .gap_1()
+            .when(narrow, |d| d.w_full().flex_wrap())
+            .child(fetch)
+            .child(h_flex().child(pull).child(pull_modes))
+            .child(push)
+            .when(!narrow, |d| d.child(div().w(rems(6. / 16.))))
+            .child(new_branch)
+            .child(stash)
+            .child(jump)
+            .child(more);
         Some(
             h_flex()
                 .flex_none()
-                .h(rems(34. / 16.))
                 .px_3()
                 .gap_1()
-                .child(picker)
-                .child(filter)
-                .child(div().flex_1())
-                .child(fetch)
-                .child(h_flex().child(pull).child(pull_modes))
-                .child(push)
-                .child(div().w(rems(6. / 16.)))
-                .child(new_branch)
-                .child(stash)
-                .child(jump)
-                .child(more),
+                .when(narrow, |d| d.flex_col().items_start().pb_1())
+                .when(!narrow, |d| d.h(rems(34. / 16.)))
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .when(narrow, |d| d.w_full())
+                        .child(picker)
+                        .child(filter),
+                )
+                .child(actions),
         )
     }
 
     /// The inline prompt for a name or a message, under the toolbar.
-    fn render_prompt(&self, cx: &mut Context<Self>) -> Option<Div> {
+    fn render_prompt(&self, window: &Window, cx: &mut Context<Self>) -> Option<Div> {
         let prompt = self.prompt.as_ref()?;
+        let narrow = self.fit(window) == Fit::Narrow;
         let field = |input| {
             ui::field()
                 .flex_1()
                 .min_w(rems(120. / 16.))
+                .when(narrow, |d| d.w_full())
                 .h(rems(28. / 16.))
                 .child(
                     div()
@@ -542,6 +558,7 @@ impl HistoryView {
                 .gap_2()
                 .rounded_lg()
                 .bg(ui::surface())
+                .when(narrow, |d| d.flex_col().items_start())
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     if event.keystroke.key == "escape" {
                         this.cancel_prompt(window, cx);
@@ -1702,7 +1719,7 @@ impl Render for HistoryView {
             )
             .child(self.render_header(window, cx))
             .children(self.render_toolbar(window, cx))
-            .children(self.render_prompt(cx))
+            .children(self.render_prompt(window, cx))
             .children(self.render_banner(cx))
             .child(self.render_body(window, cx))
             .child(self.render_footer(cx))
