@@ -201,7 +201,7 @@ impl HistoryView {
         self.history.as_ref().and_then(|h| h.as_ref())
     }
 
-    fn reload(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload(&mut self, cx: &mut Context<Self>) {
         let cwd = self.toplevel.clone();
         let scope = self.scope.clone();
         let limit = self.limit;
