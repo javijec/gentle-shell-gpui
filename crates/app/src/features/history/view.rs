@@ -30,7 +30,9 @@ use crate::shared::ui;
 
 const ROW_HEIGHT: f32 = 30.;
 const AUTHOR_WIDTH: f32 = 150.;
-const TIME_WIDTH: f32 = 40.;
+const TIME_WIDTH: f32 = 32.;
+const AVATAR_WIDTH: f32 = 18.;
+const AUTHOR_TIME_GAP: f32 = 4.;
 const SHA_WIDTH: f32 = 60.;
 /// The share of the list's height the selected commit's panel may take;
 /// its body scrolls past that.
@@ -885,6 +887,7 @@ impl HistoryView {
         let hash = commit.hash.clone();
         let menu = self.commit_menu(i, cx);
         row.cursor_pointer()
+            .gap_1()
             .when(selected, |d| d.bg(ui::raised()))
             .when(!selected, |d| d.hover(|s| s.bg(ui::surface_hover())))
             .on_click(cx.listener(move |this, _, _, cx| this.select(hash.clone(), cx)))
@@ -934,23 +937,28 @@ impl HistoryView {
                         .child(commit.author.clone()),
                 )
             })
-            // Keep the avatar and timestamp together, including in the
-            // narrowest layout. The time stays aligned to the right.
+            // Two fixed-width columns keep every avatar and timestamp
+            // aligned, regardless of the length of the relative time.
             .child(
                 h_flex()
                     .flex_none()
-                    .w(rems((TIME_WIDTH + 22.) / 16.))
-                    .justify_end()
-                    .gap_1()
-                    .child(avatar(
-                        &commit.author,
-                        super::avatars::picture(&commit.email, cx),
-                        !commit.coauthors.is_empty(),
-                        18.,
-                    ))
+                    .w(rems((AVATAR_WIDTH + AUTHOR_TIME_GAP + TIME_WIDTH) / 16.))
+                    .gap(rems(AUTHOR_TIME_GAP / 16.))
                     .child(
                         div()
                             .flex_none()
+                            .w(rems(AVATAR_WIDTH / 16.))
+                            .child(avatar(
+                                &commit.author,
+                                super::avatars::picture(&commit.email, cx),
+                                !commit.coauthors.is_empty(),
+                                AVATAR_WIDTH,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(rems(TIME_WIDTH / 16.))
                             .whitespace_nowrap()
                             .font_family(ui::mono())
                             .text_size(ui::code_rems(12.))
