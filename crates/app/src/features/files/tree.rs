@@ -1,6 +1,6 @@
 //! The project sidebar: the lazily loaded file tree (Tern-style context menu,
 //! inline create and rename, keyboard navigation), the working-tree changes
-//! and the branches, switched with icon tabs.
+//! the branches and the Git history, switched with icon tabs.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -24,6 +24,7 @@ use super::ops::{self, ClipMode};
 use super::refs::{RefsEvent, RefsView};
 use super::{file_icon, status_color};
 use crate::features::git::GitSnapshot;
+use crate::features::history::HistoryView;
 use crate::platform::ides;
 use crate::shared::{themes, ui};
 
@@ -145,6 +146,7 @@ enum Tab {
     Files,
     Changes,
     Branches,
+    History,
 }
 
 #[derive(Clone)]
@@ -207,6 +209,8 @@ pub struct FileTreeView {
     scroll: UniformListScrollHandle,
     changes: Entity<ChangesView>,
     refs: Entity<RefsView>,
+    /// Created on first selection; kept when switching sidebar tabs.
+    history: Option<Entity<HistoryView>>,
     /// Code editors installed here, for the ⋯ menu's "Open in …".
     ides: Rc<Vec<ides::Installed>>,
     _poll: Task<()>,
@@ -265,6 +269,7 @@ impl FileTreeView {
             scroll: UniformListScrollHandle::new(),
             changes,
             refs,
+            history: None,
             ides: Rc::default(),
             _poll: Task::ready(()),
             _subscriptions: subscriptions,
@@ -315,8 +320,12 @@ impl FileTreeView {
     pub fn set_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         let shown = visible && !self.visible;
         self.visible = visible;
-        if shown && self.tab == Tab::Files {
-            self.refresh(cx);
+        if shown {
+            match self.tab {
+                Tab::Files => self.refresh(cx),
+                Tab::History => self.refresh_history(cx),
+                Tab::Changes | Tab::Branches => {}
+            }
         }
         self.sync_panels(cx);
     }
@@ -336,11 +345,26 @@ impl FileTreeView {
         }
         self.finish_edit(false, window, cx);
         self.tab = tab;
-        if tab == Tab::Files {
-            self.refresh(cx);
+        match tab {
+            Tab::Files => self.refresh(cx),
+            Tab::History => {
+                if self.history.is_none() {
+                    let root = self.root.clone();
+                    self.history = Some(cx.new(|cx| HistoryView::new(root, window, cx)));
+                } else {
+                    self.refresh_history(cx);
+                }
+            }
+            Tab::Changes | Tab::Branches => {}
         }
         self.sync_panels(cx);
         cx.notify();
+    }
+
+    fn refresh_history(&self, cx: &mut Context<Self>) {
+        if let Some(history) = &self.history {
+            history.update(cx, |view, cx| view.reload(cx));
+        }
     }
 
     fn refresh_git(&mut self, cx: &mut Context<Self>) {
@@ -1425,7 +1449,7 @@ impl FileTreeView {
             .tooltip(tooltip)
     }
 
-    /// One of the Files / Changes / Branches icon tabs.
+    /// One of the Files / Changes / Branches / Git icon tabs.
     fn tab_button(
         &self,
         tab: Tab,
@@ -1549,7 +1573,8 @@ impl Render for FileTreeView {
             .gap_1()
             .child(self.tab_button(Tab::Files, IconName::Files, "Files", 0, cx))
             .child(self.tab_button(Tab::Changes, IconName::Diff, "Changes", change_count, cx))
-            .child(self.tab_button(Tab::Branches, IconName::GitBranch, "Branches", 0, cx));
+            .child(self.tab_button(Tab::Branches, IconName::GitBranch, "Branches", 0, cx))
+            .child(self.tab_button(Tab::History, IconName::GitGraph, "Git", 0, cx));
         // Finding a file, under the tabs while the tree shows.
         let search = (self.tab == Tab::Files).then(|| {
             h_flex().flex_none().px_2().pb_1p5().child(
@@ -1661,6 +1686,12 @@ impl Render for FileTreeView {
                     .flex_1()
                     .min_h_0()
                     .child(self.refs.clone())
+                    .into_any_element(),
+                Tab::History => div()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .children(self.history.clone())
                     .into_any_element(),
             })
             .children(footer)
