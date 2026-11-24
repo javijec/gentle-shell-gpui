@@ -35,8 +35,8 @@ const SHA_WIDTH: f32 = 60.;
 /// The share of the list's height the selected commit's panel may take;
 /// its body scrolls past that.
 const DETAIL_SHARE: f32 = 0.45;
-/// Below these pane widths the row drops the author's name and the SHA,
-/// then the author and the ref chips; the toolbar drops its labels.
+/// Below these pane widths the row drops the author's name and the SHA;
+/// the avatar and full ref labels remain. The toolbar drops its labels.
 const WIDE: f32 = 640.;
 const MEDIUM: f32 = 460.;
 
@@ -652,12 +652,21 @@ impl HistoryView {
     }
 
     fn graph_cell(&self, graph: RowGraph) -> Div {
+        let lanes = self.graph.width.max(1);
+        let natural = graph::width(lanes);
+        // Leave room for the refs and the author/time columns on narrow panes.
+        let measured = self.width.get();
+        let width = if measured > 0. {
+            natural.min((measured * 0.4).max(graph::PAD * 2.))
+        } else {
+            natural
+        };
         div()
             .relative()
             .flex_none()
-            .w(px(graph::width(self.graph.width.max(1))))
+            .w(px(width))
             .h_full()
-            .child(graph.element())
+            .child(graph.element(lanes))
     }
 
     fn render_line(
@@ -774,7 +783,6 @@ impl HistoryView {
         commit: &Commit,
         lane: Option<&str>,
         lane_color: Hsla,
-        max: usize,
     ) -> Vec<AnyElement> {
         let current = self.read().and_then(|h| h.current.clone());
         let mut chips = Vec::new();
@@ -795,7 +803,7 @@ impl HistoryView {
             let color = if is_head { ui::accent() } else { lane_color };
             chips.push(
                 ref_chip(
-                    clip(name, max),
+                    (*name).clone(),
                     color,
                     is_head.then_some(IconName::Check),
                     mirrored.then_some(IconName::Globe),
@@ -811,12 +819,12 @@ impl HistoryView {
                         .is_some_and(|(_, b)| local.iter().any(|l| l.as_str() == b)) =>
                 {
                     chips.push(
-                        ref_chip(clip(remote, max), ui::muted(), Some(IconName::Globe), None)
+                        ref_chip(remote.clone(), ui::muted(), Some(IconName::Globe), None)
                             .into_any_element(),
                     )
                 }
                 RefLabel::Tag(tag) => chips.push(
-                    ref_chip(clip(tag, max), ui::info(), Some(IconName::Tag), None)
+                    ref_chip(tag.clone(), ui::info(), Some(IconName::Tag), None)
                         .into_any_element(),
                 ),
                 _ => {}
@@ -829,7 +837,7 @@ impl HistoryView {
                 RefLabel::Tag(_) => false,
             })
         {
-            chips.push(ref_chip(clip(name, max), lane_color, None, None).into_any_element());
+            chips.push(ref_chip(name.to_string(), lane_color, None, None).into_any_element());
         }
         chips
     }
@@ -852,22 +860,12 @@ impl HistoryView {
         let lane_color = graph::lane_color(graph_row.color);
         let fit = self.fit(window);
 
-        // Ref chips need room beside the subject: a narrow pane drops them
-        // (the hover card still names the branch), others cut long names.
-        let chips = if fit > Fit::Narrow {
-            let lane = graph_row
-                .lane_tip
-                .then_some(graph_row.branch.as_deref())
-                .flatten();
-            self.ref_chips(
-                commit,
-                lane,
-                lane_color,
-                if fit == Fit::Wide { 28 } else { 18 },
-            )
-        } else {
-            Vec::new()
-        };
+        // References take priority over the subject, at every pane width.
+        let lane = graph_row
+            .lane_tip
+            .then_some(graph_row.branch.as_deref())
+            .flatten();
+        let chips = self.ref_chips(commit, lane, lane_color);
         // Filtered rows aren't neighbors in the graph: only their node.
         let graph = if filtering {
             RowGraph::node_only(graph_row, commit.head)
@@ -898,14 +896,15 @@ impl HistoryView {
                     .flex_1()
                     .min_w_0()
                     .gap_2()
-                    // Chips that don't fit are cut, leaving the subject at
-                    // least its minimum width.
+                    // Keep complete labels. If even the refs alone exceed
+                    // the available width, they can be scrolled horizontally.
                     .when(!chips.is_empty(), |d| {
                         d.child(
                             h_flex()
+                                .id(("history-refs", i))
                                 .flex_shrink(1.)
                                 .min_w_0()
-                                .overflow_hidden()
+                                .overflow_x_scroll()
                                 .gap_1p5()
                                 .children(chips.into_iter().map(|c| div().flex_none().child(c))),
                         )
@@ -913,7 +912,7 @@ impl HistoryView {
                     .child(
                         div()
                             .flex_1()
-                            .min_w(rems(96. / 16.))
+                            .min_w_0()
                             .truncate()
                             .text_sm()
                             .text_color(if graph_row.mainline || filtering {
@@ -924,40 +923,40 @@ impl HistoryView {
                             .child(commit.subject.clone()),
                     ),
             )
-            .when(fit > Fit::Narrow, |d| {
+            .when(fit == Fit::Wide, |d| {
                 d.child(
-                    h_flex()
+                    div()
                         .flex_none()
-                        .when(fit == Fit::Wide, |d| d.w(rems(AUTHOR_WIDTH / 16.)))
-                        .gap_2()
-                        .child(avatar(
-                            &commit.author,
-                            super::avatars::picture(&commit.email, cx),
-                            !commit.coauthors.is_empty(),
-                            18.,
-                        ))
-                        .when(fit == Fit::Wide, |d| {
-                            d.child(
-                                div()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(ui::muted())
-                                    .child(commit.author.clone()),
-                            )
-                        }),
+                        .w(rems((AUTHOR_WIDTH - 26.) / 16.))
+                        .truncate()
+                        .text_xs()
+                        .text_color(ui::muted())
+                        .child(commit.author.clone()),
                 )
             })
+            // Keep the avatar and timestamp together, including in the
+            // narrowest layout. The time stays aligned to the right.
             .child(
-                div()
+                h_flex()
                     .flex_none()
-                    .w(rems(TIME_WIDTH / 16.))
-                    .whitespace_nowrap()
-                    .text_right()
-                    .font_family(ui::mono())
-                    .text_size(ui::code_rems(12.))
-                    .text_color(ui::faint())
-                    .child(short_time(self.now_ms, commit.time)),
+                    .w(rems((TIME_WIDTH + 22.) / 16.))
+                    .justify_end()
+                    .gap_1()
+                    .child(avatar(
+                        &commit.author,
+                        super::avatars::picture(&commit.email, cx),
+                        !commit.coauthors.is_empty(),
+                        18.,
+                    ))
+                    .child(
+                        div()
+                            .flex_none()
+                            .whitespace_nowrap()
+                            .font_family(ui::mono())
+                            .text_size(ui::code_rems(12.))
+                            .text_color(ui::faint())
+                            .child(short_time(self.now_ms, commit.time)),
+                    ),
             )
             .when(fit == Fit::Wide, |d| {
                 d.child(
