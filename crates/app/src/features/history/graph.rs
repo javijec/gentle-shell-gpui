@@ -109,16 +109,19 @@ impl RowGraph {
         }
     }
 
-    pub fn element(self) -> impl IntoElement {
+    pub fn element(self, lanes: usize) -> impl IntoElement {
         canvas(
             |_, _, _| (),
-            move |bounds, _, window, _| self.paint(bounds, window),
+            move |bounds, _, window, _| self.paint(bounds, lanes, window),
         )
         .size_full()
     }
 
-    fn paint(&self, bounds: Bounds<Pixels>, window: &mut Window) {
-        let x = |lane: usize| bounds.origin.x + px(PAD + LANE * lane as f32);
+    fn paint(&self, bounds: Bounds<Pixels>, lanes: usize, window: &mut Window) {
+        // Every row uses the same spacing so edges still meet at row borders.
+        let available = (f32::from(bounds.size.width) - PAD * 2.).max(0.);
+        let spacing = (available / lanes.saturating_sub(1).max(1) as f32).min(LANE);
+        let x = |lane: usize| bounds.origin.x + px(PAD + spacing * lane as f32);
         let top = bounds.origin.y;
         let mid = bounds.origin.y + bounds.size.height / 2.;
         let bottom = bounds.origin.y + bounds.size.height;
