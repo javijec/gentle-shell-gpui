@@ -121,8 +121,28 @@ impl Workspace {
             PaletteAction::ToggleSidebar => self.toggle_sidebar(cx),
             PaletteAction::SetTabLayout(layout) => self.set_tab_layout(layout, cx),
             PaletteAction::Agents => {
-                if let Some(tab) = tab {
-                    tab.update(cx, |s, cx| s.open_agents_panel(AgentsTab::Agents, cx));
+                if let Some(session) = tab {
+                    // Agents is rendered inside its owning session, not as a
+                    // workspace overlay. Reveal that pane before opening it:
+                    // active_session can fall back to an agent in another tab.
+                    let pane = self
+                        .panes
+                        .iter()
+                        .find(|(_, pane)| pane.session.as_ref() == Some(&session))
+                        .map(|(id, _)| *id);
+                    if let Some(pane) = pane {
+                        self.reveal_pane(pane, window, cx);
+                    }
+                    session.update(cx, |s, cx| {
+                        s.ensure_started(window, cx);
+                        s.open_agents_panel(AgentsTab::Agents, cx);
+                    });
+                    cx.notify();
+                } else {
+                    window.push_notification(
+                        Notification::info("Open an agent tab first to view its agents and jobs."),
+                        cx,
+                    );
                 }
             }
             PaletteAction::NewSession => {
