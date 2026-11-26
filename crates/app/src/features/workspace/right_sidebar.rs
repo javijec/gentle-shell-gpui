@@ -122,7 +122,76 @@ impl Workspace {
                     .child(Icon::new(icon)),
             );
         }
-        rail.child(div().flex_1())
-            .child(self.render_screens_menu(cx))
+        rail = rail.child(div().flex_1());
+        // These screens keep their existing overlay behavior. Engram is already
+        // available as a docked tool above, so it does not need a duplicate.
+        type Open = fn(&mut Workspace, &mut Window, &mut Context<Workspace>);
+        let screens: [(&str, IconName, &str, bool, Open); 4] = [
+            (
+                "right-profiles",
+                IconName::Route,
+                "Profiles",
+                matches!(self.overlay, Some((Overlay::Profiles(_), _))),
+                Self::open_profiles,
+            ),
+            (
+                "right-sessions",
+                IconName::RotateCcwClock,
+                "Sessions",
+                matches!(self.overlay, Some((Overlay::Sessions(_), _))),
+                Self::open_sessions,
+            ),
+            (
+                "right-providers",
+                IconName::KeyRound,
+                "Providers",
+                matches!(self.overlay, Some((Overlay::Providers(_), _))),
+                Self::open_providers,
+            ),
+            (
+                "right-configuration",
+                IconName::Settings,
+                "Configuration",
+                matches!(self.overlay, Some((Overlay::Settings(_), _))),
+                Self::open_settings,
+            ),
+        ];
+        for (id, icon, label, selected, open) in screens {
+            let tooltip = match id {
+                "right-configuration" => format!(
+                    "{label} ({})",
+                    ui::platform_shortcut("⌘,", "Ctrl+,")
+                ),
+                "right-sessions" => format!(
+                    "{label} ({})",
+                    ui::platform_shortcut("⌘⇧O", "Ctrl+Shift+O")
+                ),
+                _ => label.to_string(),
+            };
+            rail = rail.child(
+                h_flex()
+                    .id(id)
+                    .size(rems(34. / 16.))
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .when(selected, |d| d.bg(ui::raised()).text_color(ui::fg()))
+                    .when(!selected, |d| {
+                        d.text_color(ui::muted()).hover(|d| d.bg(ui::surface_hover()))
+                    })
+                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if selected {
+                            this.close_overlay(window, cx);
+                        } else {
+                            open(this, window, cx);
+                        }
+                    }))
+                    .child(Icon::new(icon)),
+            );
+        }
+        rail
     }
 }
