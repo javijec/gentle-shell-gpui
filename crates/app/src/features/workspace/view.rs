@@ -460,9 +460,8 @@ impl Workspace {
             )
     }
 
-    /// One title-bar button for the screens (Configuration, Profiles, Memory,
-    /// Sessions, Providers): lit while one is open, each entry with what it
-    /// is and its shortcut when it has one.
+    /// The bottom activity-rail button for Configuration, Profiles, Memory,
+    /// Sessions and Providers; lit while one of those screens is open.
     pub(super) fn render_screens_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let weak = cx.entity().downgrade();
         let open_screen = matches!(
@@ -479,7 +478,9 @@ impl Workspace {
         div()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
-                title_button("title-screens", IconName::Settings)
+                Button::new("right-screens")
+                    .ghost()
+                    .icon(Icon::new(IconName::Settings))
                     .selected(open_screen)
                     .tooltip(format!(
                         "Configuration, profiles, memory, sessions, providers ({})",
@@ -539,7 +540,7 @@ impl Workspace {
                             ))
                     })
                     .on_open_change(|open, window, cx| {
-                        crate::features::browser::popover_open("title-screens", *open, window, cx)
+                        crate::features::browser::popover_open("right-screens", *open, window, cx)
                     }),
             )
     }
