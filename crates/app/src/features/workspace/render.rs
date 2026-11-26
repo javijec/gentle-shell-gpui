@@ -349,26 +349,6 @@ impl Render for Workspace {
                                             ))
                                     })
                                     .child(
-                                        Button::new("toggle-tab-sidebar")
-                                            .ghost()
-                                            .xsmall()
-                                            .icon(Icon::new(
-                                                if vertical_tabs && !self.sidebar_compact {
-                                                    IconName::PanelLeftClose
-                                                } else {
-                                                    IconName::PanelLeftOpen
-                                                },
-                                            ))
-                                            .tooltip(if vertical_tabs && !self.sidebar_compact {
-                                                "Collapse workspace sidebar"
-                                            } else {
-                                                "Expand workspace sidebar"
-                                            })
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.toggle_sidebar_compact(cx)
-                                            })),
-                                    )
-                                    .child(
                                         Button::new("open-palette")
                                             .ghost()
                                             .xsmall()
