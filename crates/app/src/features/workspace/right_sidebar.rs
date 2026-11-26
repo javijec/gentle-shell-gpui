@@ -93,15 +93,18 @@ impl Workspace {
             .py_2()
             .rounded_xl()
             .bg(ui::panel());
-        for (tool, icon, label) in [
+        for (index, (tool, icon, label)) in [
             (Tool::Files, IconName::Files, "Files"),
             (Tool::Git, IconName::GitBranch, "Git"),
             (Tool::Engram, IconName::Brain, "Engram"),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let selected = self.sidebar_visible && tool == active;
             rail = rail.child(
                 h_flex()
-                    .id(("right-tool", label))
+                    .id(("right-tool", index))
                     .size(rems(34. / 16.))
                     .flex_none()
                     .items_center()
