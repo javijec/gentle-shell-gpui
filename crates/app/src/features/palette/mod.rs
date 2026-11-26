@@ -24,6 +24,29 @@ use commands::{command_row, screen_rows};
 pub use sources::switch_branch;
 use sources::{list_branches, walk_files};
 
+/// Native command shortcuts for the activity rail. Reuse the palette's
+/// labels, icons and actions; backend slash commands stay in Commands.
+pub(crate) fn sidebar_commands(
+    tab_layout: TabLayout,
+) -> Vec<(IconName, String, String, PaletteAction)> {
+    screen_rows(tab_layout)
+        .into_iter()
+        .filter(|row| {
+            !matches!(
+                &row.action,
+                PaletteAction::Setup
+                    | PaletteAction::Welcome
+                    | PaletteAction::Memory
+                    | PaletteAction::Profiles
+                    | PaletteAction::Sessions
+                    | PaletteAction::Providers
+                    | PaletteAction::Settings
+            )
+        })
+        .map(|row| (row.icon, row.title, row.detail, row.action))
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PaletteAction {
     Providers,

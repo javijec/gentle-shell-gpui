@@ -307,6 +307,30 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_shortcuts_include_native_commands_except_setup_and_existing_tools() {
+        for layout in [TabLayout::Horizontal, TabLayout::Vertical] {
+            let shortcuts = super::super::sidebar_commands(layout);
+            let actions: Vec<_> = shortcuts
+                .into_iter()
+                .map(|(_, _, _, action)| action)
+                .collect();
+            for row in screen_rows(layout) {
+                let excluded = matches!(
+                    &row.action,
+                    PaletteAction::Setup
+                        | PaletteAction::Welcome
+                        | PaletteAction::Memory
+                        | PaletteAction::Profiles
+                        | PaletteAction::Sessions
+                        | PaletteAction::Providers
+                        | PaletteAction::Settings
+                );
+                assert_eq!(actions.contains(&row.action), !excluded, "{}", row.title);
+            }
+        }
+    }
+
+    #[test]
     fn backend_commands_skip_dead_ones_and_open_native_screens() {
         assert_eq!(action("gentle:guide"), None);
         assert_eq!(action("history"), None);
