@@ -19,6 +19,9 @@ use gentle_core::explorer::{Entry, visible};
 
 use crate::shared::ui;
 
+#[cfg(test)]
+mod tests;
+
 /// Directories with more entries than this list only the first ones.
 const MAX_ENTRIES: usize = 5_000;
 
@@ -44,7 +47,10 @@ pub struct ExplorerView {
     filter: Entity<InputState>,
     /// Why `dir` couldn't be listed.
     error: Option<String>,
-    scroll: ScrollHandle,
+    scroll: UniformListScrollHandle,
+    /// The folder being read off the UI thread; a newer navigation replaces
+    /// it, which drops the older read.
+    listing: Task<()>,
     _subscription: Subscription,
 }
 
@@ -65,14 +71,16 @@ impl ExplorerView {
             selected: 0,
             filter,
             error: None,
-            scroll: ScrollHandle::new(),
+            scroll: UniformListScrollHandle::new(),
+            listing: Task::ready(()),
             _subscription: subscription,
         };
         this.load(dir, None, window, cx);
         this
     }
 
-    /// Show `dir`, selecting the entry named `select` when it is there.
+    /// Show `dir` once it is read, selecting the entry named `select` when it
+    /// is there. The folder shown stays until then.
     fn load(
         &mut self,
         dir: PathBuf,
@@ -80,7 +88,27 @@ impl ExplorerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (entries, repos, error) = match read_dir(&dir) {
+        self.listing = cx.spawn_in(window, async move |this, cx| {
+            let listed = dir.clone();
+            let read = cx
+                .background_executor()
+                .spawn(async move { read_dir(&listed) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.show(dir, read, select, window, cx)
+            });
+        });
+    }
+
+    fn show(
+        &mut self,
+        dir: PathBuf,
+        read: std::io::Result<(Vec<Entry>, HashSet<String>)>,
+        select: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (entries, repos, error) = match read {
             Ok((entries, repos)) => (entries, repos, None),
             Err(error) => (Vec::new(), HashSet::new(), Some(error.to_string())),
         };
@@ -99,7 +127,8 @@ impl ExplorerView {
         self.selected = select
             .and_then(|name| self.shown.iter().position(|e| e.name == name))
             .unwrap_or(0);
-        self.scroll.scroll_to_item(self.selected);
+        self.scroll
+            .scroll_to_item(self.selected, ScrollStrategy::Nearest);
         cx.notify();
     }
 
@@ -107,12 +136,16 @@ impl ExplorerView {
         self.shown.get(self.selected)
     }
 
-    /// The folder an "open here" acts on: the selected folder, else the one shown.
-    fn target(&self) -> PathBuf {
-        match self.selected_entry() {
+    /// The folder an "open here" acts on: the selected folder, else the one
+    /// shown; none until the first folder is read.
+    fn target(&self) -> Option<PathBuf> {
+        if self.dir.as_os_str().is_empty() {
+            return None;
+        }
+        Some(match self.selected_entry() {
             Some(entry) if entry.is_dir => self.dir.join(&entry.name),
             _ => self.dir.clone(),
-        }
+        })
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -121,7 +154,8 @@ impl ExplorerView {
         }
         let len = self.shown.len() as isize;
         self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
-        self.scroll.scroll_to_item(self.selected);
+        self.scroll
+            .scroll_to_item(self.selected, ScrollStrategy::Nearest);
         cx.notify();
     }
 
@@ -155,11 +189,15 @@ impl ExplorerView {
     }
 
     fn open_agent(&mut self, cx: &mut Context<Self>) {
-        cx.emit(ExplorerEvent::OpenAgent(self.target()));
+        if let Some(target) = self.target() {
+            cx.emit(ExplorerEvent::OpenAgent(target));
+        }
     }
 
     fn open_terminal(&mut self, cx: &mut Context<Self>) {
-        cx.emit(ExplorerEvent::OpenTerminal(self.target()));
+        if let Some(target) = self.target() {
+            cx.emit(ExplorerEvent::OpenTerminal(target));
+        }
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -241,7 +279,7 @@ impl ExplorerView {
             }))
     }
 
-    fn render_row(&self, i: usize, entry: &Entry, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_row(&self, i: usize, entry: &Entry, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = i == self.selected;
         let repo = entry.is_dir && self.repos.contains(&entry.name);
         let icon = match (entry.is_dir, repo) {
@@ -251,6 +289,8 @@ impl ExplorerView {
         };
         h_flex()
             .id(("explorer-row", i))
+            .debug_selector(move || format!("explorer-row-{i}"))
+            .w_full()
             .h(px(32.))
             .flex_none()
             .px_3()
@@ -320,31 +360,46 @@ fn hint(keys: impl IntoIterator<Item = impl IntoElement>, label: &'static str) -
 
 impl Render for ExplorerView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut list = v_flex()
-            .id("explorer-list")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.scroll)
-            .p_2();
-        for (i, entry) in self.shown.iter().enumerate() {
-            list = list.child(self.render_row(i, entry, cx));
-        }
-        if self.shown.is_empty() {
+        // Only the rows in view are built.
+        let list = if self.shown.is_empty() {
             let text = match &self.error {
                 Some(error) => format!("Can't read this folder: {error}"),
                 None if self.entries.is_empty() => "Empty folder".into(),
                 None => "No matches".into(),
             };
-            list = list.child(
-                div()
-                    .py_8()
-                    .text_center()
-                    .text_sm()
-                    .text_color(ui::muted())
-                    .child(text),
-            );
-        }
+            v_flex()
+                .id("explorer-list")
+                .flex_1()
+                .min_h_0()
+                .p_2()
+                // Nothing to say before the first folder is read.
+                .when(!self.dir.as_os_str().is_empty(), |d| {
+                    d.child(
+                        div()
+                            .py_8()
+                            .text_center()
+                            .text_sm()
+                            .text_color(ui::muted())
+                            .child(text),
+                    )
+                })
+                .into_any_element()
+        } else {
+            uniform_list(
+                "explorer-list",
+                self.shown.len(),
+                cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                    range
+                        .map(|i| this.render_row(i, &this.shown[i], cx))
+                        .collect::<Vec<_>>()
+                }),
+            )
+            .flex_1()
+            .min_h_0()
+            .p_2()
+            .track_scroll(&self.scroll)
+            .into_any_element()
+        };
         let (secondary, alt) = if cfg!(target_os = "macos") {
             ("⌘", "⌥")
         } else {
@@ -387,7 +442,9 @@ impl Render for ExplorerView {
                             .icon(Icon::new(IconName::Bot))
                             .label("Open Gentle Shell here")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                cx.emit(ExplorerEvent::OpenAgent(this.dir.clone()))
+                                if !this.dir.as_os_str().is_empty() {
+                                    cx.emit(ExplorerEvent::OpenAgent(this.dir.clone()))
+                                }
                             })),
                     ),
             )

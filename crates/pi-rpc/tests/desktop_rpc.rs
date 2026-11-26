@@ -591,6 +591,53 @@ fn the_session_ignores_unrelated_widgets_and_keeps_its_state() {
 }
 
 #[test]
+fn a_record_already_decoded_is_correlated_like_the_request_it_came_from() {
+    let mut session = DesktopSession::new();
+    session.issue(DesktopMethod::Capabilities).unwrap();
+
+    // Not this protocol's widget: nothing to correlate, nothing changes.
+    assert_eq!(session.accept_decoded(Ok(None)), Ok(None));
+    assert_eq!(
+        session.pending(),
+        Some(("desktop-1", DesktopMethod::Capabilities))
+    );
+
+    // A record that did not decode keeps its error, and the request stays.
+    let broken = decode_widget(&widget("{not json"));
+    assert!(matches!(broken, Err(DesktopRpcError::MalformedPayload(_))));
+    assert_eq!(session.accept_decoded(broken.clone()), broken);
+    assert_eq!(
+        session.pending(),
+        Some(("desktop-1", DesktopMethod::Capabilities))
+    );
+
+    // The answer is handed back as decoded and settles the request.
+    let answer = decode_widget(&widget(&response_line(
+        "desktop-1",
+        capabilities_data(&["capabilities"], &[]),
+    )));
+    assert!(matches!(answer, Ok(Some(_))));
+    assert_eq!(session.accept_decoded(answer.clone()), answer);
+    assert!(session.pending().is_none());
+    assert_eq!(
+        session.accept_decoded(answer),
+        Err(DesktopRpcError::UncorrelatedResponse {
+            expected: None,
+            got: Some("desktop-1".into()),
+        })
+    );
+
+    // Events keep their sequence checks.
+    let first = decode_widget(&widget(&event_line(1, "snapshot_changed", json!({}))));
+    assert_eq!(session.accept_decoded(first.clone()), first);
+    assert_eq!(
+        session.accept_decoded(first),
+        Err(DesktopRpcError::DuplicateSequence { last: 1, got: 1 })
+    );
+    assert_eq!(session.last_sequence(), Some(1));
+}
+
+#[test]
 fn an_error_response_still_completes_the_pending_request() {
     let mut session = DesktopSession::new();
     session.issue(DesktopMethod::GetSnapshot).unwrap();

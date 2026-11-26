@@ -129,14 +129,8 @@ fn palette() -> Palette {
 }
 
 /// The export's bytes: text, or a PNG drawn from the SVG at 2×.
-fn bytes(source: &Source, format: Format) -> Result<Vec<u8>, String> {
-    let text = export::render(
-        &source.kind,
-        &source.title,
-        &source.spec,
-        format,
-        &palette(),
-    )?;
+fn bytes(source: &Source, format: Format, palette: &Palette) -> Result<Vec<u8>, String> {
+    let text = export::render(&source.kind, &source.title, &source.spec, format, palette)?;
     if format != Format::Png {
         return Ok(text.into_bytes());
     }
@@ -175,26 +169,40 @@ fn save_dir(root: Option<&Path>) -> PathBuf {
 /// [`DiagramEvent::Request`]).
 pub fn run<V: EventEmitter<DiagramEvent>>(action: Action, source: Source, cx: &mut Context<V>) {
     let notice = match action {
-        Action::Copy(format) => bytes(&source, format).map(|bytes| {
-            if format == Format::Png {
-                cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(
-                    ImageFormat::Png,
-                    bytes,
-                )));
-            } else {
-                cx.write_to_clipboard(ClipboardItem::new_string(
-                    String::from_utf8_lossy(&bytes).into_owned(),
-                ));
-            }
-            format!("Copied “{}” as {}", source.title, format.name())
-        }),
-        Action::Save(format) => match bytes(&source, format) {
-            Ok(bytes) => {
-                save(source, format, bytes, cx);
-                return;
-            }
-            Err(error) => Err(error),
-        },
+        // Drawing a large chart as a PNG takes a while: the bytes are made
+        // on a background thread, in the theme's colors of the moment.
+        Action::Copy(format) | Action::Save(format) => {
+            let palette = palette();
+            cx.spawn(async move |this, cx| {
+                let (source, made) = cx
+                    .background_spawn(async move {
+                        let made = bytes(&source, format, &palette);
+                        (source, made)
+                    })
+                    .await;
+                let _ = this.update(cx, |_, cx| {
+                    let notice = match (action, made) {
+                        (Action::Save(_), Ok(bytes)) => return save(source, format, bytes, cx),
+                        (_, Ok(bytes)) => {
+                            if format == Format::Png {
+                                cx.write_to_clipboard(ClipboardItem::new_image(
+                                    &Image::from_bytes(ImageFormat::Png, bytes),
+                                ));
+                            } else {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    String::from_utf8_lossy(&bytes).into_owned(),
+                                ));
+                            }
+                            Ok(format!("Copied “{}” as {}", source.title, format.name()))
+                        }
+                        (_, Err(error)) => Err(error),
+                    };
+                    cx.emit(DiagramEvent::Notice(notice));
+                });
+            })
+            .detach();
+            return;
+        }
         Action::Docs => {
             match export::docs_command(&source.id, &source.kind, &source.title, &source.spec) {
                 Ok(command) => {
@@ -363,8 +371,131 @@ pub fn tools<V: EventEmitter<DiagramEvent>>(
 #[cfg(test)]
 mod tests {
     // Not a glob: GPUI exports a `test` attribute that would shadow `#[test]`.
-    use super::{hex, svg_size};
-    use gpui_kit::{Hsla, Rgba};
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+    use std::rc::Rc;
+
+    use gentle_core::genui::export::Format;
+    use gpui_kit::{
+        AppContext as _, ClipboardEntry, Entity, EventEmitter, Hsla, ImageFormat, Rgba,
+        TestAppContext,
+    };
+    use serde_json::{Value, json};
+
+    use super::super::diagram::DiagramEvent;
+    use super::{Action, Source, bytes, hex, palette, run, svg_size};
+
+    /// A stand-in for a surface: what `run` reports back to it.
+    struct Probe;
+    impl EventEmitter<DiagramEvent> for Probe {}
+
+    type Notices = Rc<RefCell<Vec<Result<String, String>>>>;
+
+    fn probe(cx: &mut TestAppContext) -> (Entity<Probe>, Notices) {
+        let probe = cx.new(|_| Probe);
+        let notices = Notices::default();
+        let seen = notices.clone();
+        cx.update(|cx| {
+            cx.subscribe(&probe, move |_, event: &DiagramEvent, _| match event {
+                DiagramEvent::Notice(notice) => seen.borrow_mut().push(notice.clone()),
+                _ => panic!("only notices are expected"),
+            })
+            .detach()
+        });
+        (probe, notices)
+    }
+
+    fn chart(spec: Value, root: Option<PathBuf>) -> Source {
+        Source {
+            id: "ui-chart".into(),
+            kind: "chart".into(),
+            title: "Fails".into(),
+            spec,
+            root,
+        }
+    }
+
+    fn small_chart() -> Value {
+        json!({"labels": ["mon", "tue"], "series": [{"name": "login", "values": [4, 2]}]})
+    }
+
+    fn image(cx: &TestAppContext) -> Option<(ImageFormat, Vec<u8>)> {
+        match cx.read_from_clipboard()?.entries() {
+            [ClipboardEntry::Image(image)] => Some((image.format, image.bytes().to_vec())),
+            other => panic!("expected one image on the clipboard, got {other:?}"),
+        }
+    }
+
+    #[gpui::test]
+    fn copying_a_png_returns_before_drawing_it(cx: &mut TestAppContext) {
+        let (probe, notices) = probe(cx);
+        let source = chart(small_chart(), None);
+        let expected = bytes(&source, Format::Png, &palette()).unwrap();
+
+        probe.update(cx, |_, cx| run(Action::Copy(Format::Png), source, cx));
+        assert_eq!(*notices.borrow(), [], "the notice waits for the picture");
+        assert!(cx.read_from_clipboard().is_none());
+
+        cx.run_until_parked();
+        assert_eq!(*notices.borrow(), [Ok("Copied “Fails” as PNG".into())]);
+        assert_eq!(image(cx), Some((ImageFormat::Png, expected)));
+    }
+
+    #[gpui::test]
+    fn copying_text_and_failures_notice_as_before(cx: &mut TestAppContext) {
+        let (probe, notices) = probe(cx);
+        let source = chart(small_chart(), None);
+        let expected = String::from_utf8(bytes(&source, Format::Csv, &palette()).unwrap()).unwrap();
+        probe.update(cx, |_, cx| run(Action::Copy(Format::Csv), source, cx));
+        cx.run_until_parked();
+        let copied = cx.read_from_clipboard().and_then(|item| item.text());
+        assert_eq!(copied, Some(expected));
+
+        let broken = chart(json!({"series": 3}), None);
+        probe.update(cx, |_, cx| run(Action::Copy(Format::Png), broken, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            *notices.borrow(),
+            [
+                Ok("Copied “Fails” as CSV".into()),
+                Err("\"series\" must be an array".into())
+            ]
+        );
+    }
+
+    #[gpui::test]
+    fn saving_asks_where_then_writes(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!("gs-genui-share-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        let (probe, notices) = probe(cx);
+
+        let broken = chart(json!({"series": 3}), Some(root.clone()));
+        probe.update(cx, |_, cx| run(Action::Save(Format::Png), broken, cx));
+        cx.run_until_parked();
+        assert!(!cx.did_prompt_for_new_path());
+
+        let source = chart(small_chart(), Some(root.clone()));
+        let expected = bytes(&source, Format::Png, &palette()).unwrap();
+        probe.update(cx, |_, cx| run(Action::Save(Format::Png), source, cx));
+        cx.run_until_parked();
+        assert!(cx.did_prompt_for_new_path());
+        let target = root.join("docs/fails.png");
+        cx.simulate_new_path_selection(|dir| {
+            assert_eq!(dir, root.join("docs"));
+            Some(target.clone())
+        });
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&target).ok(), Some(expected));
+        assert_eq!(
+            *notices.borrow(),
+            [
+                Err("\"series\" must be an array".into()),
+                Ok(format!("Saved {}", target.display()))
+            ]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn reads_an_svg_size() {

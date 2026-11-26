@@ -192,6 +192,23 @@ pub fn merged_branch(subject: &str) -> Option<String> {
     (!branch.is_empty()).then(|| branch.to_string())
 }
 
+/// `loaded` followed by `page`, read after the first `skip` commits of the
+/// same history. `None` when it can't be that history's next commits: `loaded`
+/// no longer holds `skip` commits, or `page` repeats one of them.
+pub fn append_page(loaded: &[Commit], skip: usize, page: Vec<Commit>) -> Option<Vec<Commit>> {
+    if loaded.len() != skip {
+        return None;
+    }
+    let hashes: std::collections::HashSet<&str> = loaded.iter().map(|c| c.hash.as_str()).collect();
+    if page.iter().any(|c| hashes.contains(c.hash.as_str())) {
+        return None;
+    }
+    let mut commits = Vec::with_capacity(loaded.len() + page.len());
+    commits.extend_from_slice(loaded);
+    commits.extend(page);
+    Some(commits)
+}
+
 /// A line of the graph inside one row: from lane `from` to lane `to`, in the
 /// color of the lane it belongs to. Equal lanes are a straight line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -608,6 +625,34 @@ mod tests {
         assert_eq!((r[1].lane, r[1].branch.as_deref()), (1, Some("feature")));
         assert!(r[1].lane_tip && !r[1].mainline);
         assert_eq!(r[2].top, vec![edge(0, 0, 0), edge(1, 0, 1)]);
+    }
+
+    #[test]
+    fn an_earlier_page_is_added_after_the_commits_it_skipped() {
+        let loaded = [commit("c", &["b"], "third"), commit("b", &["a"], "second")];
+        let page = vec![commit("a", &[], "first")];
+
+        assert_eq!(
+            append_page(&loaded, 2, page),
+            Some(vec![
+                commit("c", &["b"], "third"),
+                commit("b", &["a"], "second"),
+                commit("a", &[], "first"),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_page_that_does_not_continue_the_loaded_commits_is_not_added() {
+        let loaded = [commit("c", &["b"], "third"), commit("b", &["a"], "second")];
+        // Read after a different number of commits than are loaded now.
+        assert_eq!(
+            append_page(&loaded, 1, vec![commit("a", &[], "first")]),
+            None
+        );
+        // Its first commit is already loaded.
+        let page = vec![commit("b", &["a"], "second"), commit("a", &[], "first")];
+        assert_eq!(append_page(&loaded, 2, page), None);
     }
 
     #[test]

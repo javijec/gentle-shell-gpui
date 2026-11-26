@@ -9,7 +9,6 @@
 //! method (4.8.0) is never asked: the views keep what they showed before.
 
 use gentle_core::activity::{Thread, ThreadItem};
-use pi_rpc::UiRequest;
 use pi_rpc::desktop_rpc::{
     Capabilities, DesktopErrorCode, DesktopJob, DesktopMethod, DesktopRecord, DesktopResponse,
     DesktopRpcError, DesktopSession, JobOutput, SubagentThread, ThreadItem as RpcThreadItem,
@@ -205,15 +204,27 @@ impl Output {
         Applied::default()
     }
 
-    /// One incoming record the wiring routed here: the answer to this
-    /// slice's request in flight.
+    /// [`Self::apply_decoded`] for the raw request.
+    #[cfg(test)]
     pub(in crate::features::session) fn apply(
         &mut self,
         session: &mut DesktopSession,
-        request: &UiRequest,
+        request: &pi_rpc::UiRequest,
+    ) -> Applied {
+        self.apply_decoded(session, pi_rpc::desktop_rpc::decode_widget(request))
+    }
+
+    /// One incoming record the wiring routed here: the answer to this
+    /// slice's request in flight.
+    /// `decoded` is the request's [`pi_rpc::desktop_rpc::decode_widget`]
+    /// result, so the record is not decoded again.
+    pub(in crate::features::session) fn apply_decoded(
+        &mut self,
+        session: &mut DesktopSession,
+        decoded: Result<Option<DesktopRecord>, DesktopRpcError>,
     ) -> Applied {
         let awaiting = session.pending().map(|(_, method)| method);
-        if let Ok(Some(DesktopRecord::Response(response))) = session.accept(request) {
+        if let Ok(Some(DesktopRecord::Response(response))) = session.accept_decoded(decoded) {
             let asked = self.in_flight.take();
             match (awaiting, asked) {
                 (Some(DesktopMethod::GetJobOutput), Some(InFlight::Job(id))) => {

@@ -25,7 +25,7 @@ pub use gentle_core::git::refs::{RefEntry, RefsSnapshot, Worktree};
 pub use gentle_core::git::status::{
     ChangeGroup, EntryKind, GitSnapshot, StatusEntry, WorkTree, change_groups,
 };
-pub use log::{History, Scope, history};
+pub use log::{History, Scope, earlier, history};
 pub use refs::{
     StashAction, add_worktree, checkout_remote, prune_worktrees, refs_snapshot, remove_worktree,
     stash,

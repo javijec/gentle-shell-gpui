@@ -21,7 +21,6 @@
 
 use std::collections::VecDeque;
 
-use pi_rpc::UiRequest;
 use pi_rpc::desktop_rpc::{
     AgentDefinitions, AuthStatus, BackgroundPolicy, BackgroundSubagents, Capabilities,
     DesktopErrorCode, DesktopMethod, DesktopRecord, DesktopResponse, DesktopRpcError,
@@ -325,13 +324,15 @@ impl Reads {
     /// One incoming UI request: the answer to the read in flight. These
     /// methods emit no event, so anything else is left alone (the session
     /// still accepts it once, here, as every slice does).
+    /// `decoded` is the request's [`pi_rpc::desktop_rpc::decode_widget`]
+    /// result, so the record is not decoded again.
     pub(in crate::features::session) fn apply(
         &mut self,
         session: &mut DesktopSession,
-        request: &UiRequest,
+        decoded: Result<Option<DesktopRecord>, DesktopRpcError>,
     ) -> Applied {
         let awaiting = session.pending().map(|(_, method)| method);
-        match session.accept(request) {
+        match session.accept_decoded(decoded) {
             Ok(Some(DesktopRecord::Response(response))) if awaiting.is_some_and(is_read) => {
                 self.apply_response(response)
             }

@@ -59,6 +59,9 @@ struct Shared {
     interval: AtomicU64,
     /// The least milliseconds between frames the person allows (Calm).
     floor: AtomicU64,
+    /// Turns of the scene's loop, so tests can see it rest.
+    #[cfg(test)]
+    turns: AtomicU64,
 }
 
 /// How long to wait between frames of a scene that takes `cost` each, at
@@ -70,6 +73,8 @@ pub(super) fn pace(cost: Duration, floor: Duration) -> Duration {
 /// A running scene. Dropping it ends its thread.
 pub struct Scene {
     shared: Arc<Shared>,
+    /// The scene's thread, which rests until something it reads changes.
+    thread: Option<std::thread::Thread>,
 }
 
 /// What a scene needs besides its code.
@@ -107,10 +112,22 @@ impl Scene {
                     super::report(&theme, Some(err));
                 }
             });
-        if let Err(err) = spawned {
-            super::report(&theme, Some(err.to_string()));
+        let thread = match spawned {
+            Ok(handle) => Some(handle.thread().clone()),
+            Err(err) => {
+                super::report(&theme, Some(err.to_string()));
+                None
+            }
+        };
+        Self { shared, thread }
+    }
+
+    /// Wakes the scene's thread to look at what changed. A wake that comes
+    /// before it rests isn't lost: its next rest returns at once.
+    fn wake(&self) {
+        if let Some(thread) = &self.thread {
+            thread.unpark();
         }
-        Self { shared }
     }
 
     /// The latest frame, if any.
@@ -119,16 +136,20 @@ impl Scene {
     }
 
     pub fn set_size(&self, width: f32, height: f32) {
-        self.shared
-            .width
-            .store(f64::from(width).to_bits(), Ordering::Relaxed);
-        self.shared
-            .height
-            .store(f64::from(height).to_bits(), Ordering::Relaxed);
+        let size = (f64::from(width).to_bits(), f64::from(height).to_bits());
+        let was = (
+            self.shared.width.swap(size.0, Ordering::Relaxed),
+            self.shared.height.swap(size.1, Ordering::Relaxed),
+        );
+        if was != size {
+            self.wake();
+        }
     }
 
     pub fn set_moving(&self, moving: bool) {
-        self.shared.moving.store(moving, Ordering::Relaxed);
+        if self.shared.moving.swap(moving, Ordering::Relaxed) != moving {
+            self.wake();
+        }
     }
 
     /// Never compute frames more often than every `floor`.
@@ -150,6 +171,7 @@ impl Scene {
 impl Drop for Scene {
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::Relaxed);
+        self.wake();
     }
 }
 
@@ -278,6 +300,8 @@ fn run(shared: &Shared, setup: Setup) -> Result<(), String> {
     // A running average of what a frame costs.
     let mut cost = Duration::ZERO;
     while !shared.stop.load(Ordering::Relaxed) {
+        #[cfg(test)]
+        shared.turns.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
         let size = (
             f64::from_bits(shared.width.load(Ordering::Relaxed)) as f32,
@@ -286,9 +310,13 @@ fn run(shared: &Shared, setup: Setup) -> Result<(), String> {
         let moving = shared.moving.load(Ordering::Relaxed);
         let elapsed = last.elapsed().min(Duration::from_millis(250));
         last = Instant::now();
-        // Held still: draw once per size, then wait.
+        // Held still: draw once per size, then rest until the window changes
+        // the size, the motion or stops the scene (each wakes this thread;
+        // the check runs again after any wake).
         if size.0 < 1. || size.1 < 1. || (!moving && drawn == Some(size)) {
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::park();
+            // Scene time doesn't run while it rests.
+            last = Instant::now();
             continue;
         }
         if moving {
@@ -488,6 +516,91 @@ mod tests {
             // translate doesn't carry into the next (x stays 0).
             assert_eq!(&commands[..5], &[1., 0., 0., 1., 1.]);
         }
+    }
+
+    /// Waits until `done` holds; the deadline only makes a missing wake fail
+    /// instead of hanging.
+    fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(Instant::now() < deadline, "timed out waiting until {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// A still scene that has drawn its frame for `size` and come to rest:
+    /// the drawing turn's pause is at most `SLOWEST`.
+    fn rested_scene(size: (f32, f32)) -> Scene {
+        let scene = Scene::start(Setup {
+            theme: "scene-rest-test".into(),
+            code: "SCENES.x = { draw(g) { g.rect(0, 0, 1, 1, '#fff') } }".into(),
+            cell: 22.,
+            speed: 1.,
+            colors: COLORS.into(),
+            image: None,
+            effects: None,
+            blur: 0.,
+        });
+        scene.set_moving(false);
+        scene.set_size(size.0, size.1);
+        wait_until("the first frame is drawn", || {
+            scene.frame().is_some_and(|f| f.size == size)
+        });
+        // At rest once its loop stops turning: after the frame it still
+        // paces once and uses up the wake `set_size` left.
+        let mut seen = (scene.shared.turns.load(Ordering::Relaxed), Instant::now());
+        wait_until("the scene's thread rests", || {
+            let turns = scene.shared.turns.load(Ordering::Relaxed);
+            if turns != seen.0 {
+                seen = (turns, Instant::now());
+            }
+            seen.1.elapsed() >= Duration::from_millis(300)
+        });
+        scene
+    }
+
+    #[test]
+    fn a_still_drawn_scene_does_not_wake_its_thread() {
+        let scene = rested_scene((300., 200.));
+        let before = scene.shared.turns.load(Ordering::Relaxed);
+        // The window tells it the same things on every render.
+        for _ in 0..20 {
+            scene.set_size(300., 200.);
+            scene.set_moving(false);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let turns = scene.shared.turns.load(Ordering::Relaxed) - before;
+        eprintln!("a still scene turned {turns} times in 2 s");
+        // One spurious wake is allowed; polling would turn about 20 times.
+        assert!(turns <= 1, "a still scene turned {turns} times in 2 s");
+    }
+
+    #[test]
+    fn a_still_scene_draws_again_for_a_new_size() {
+        let scene = rested_scene((300., 200.));
+        scene.set_size(640., 480.);
+        wait_until("a frame for the new size", || {
+            scene.frame().is_some_and(|f| f.size == (640., 480.))
+        });
+    }
+
+    #[test]
+    fn a_still_scene_draws_again_when_it_moves() {
+        let scene = rested_scene((300., 200.));
+        let still = scene.frame().unwrap();
+        scene.set_moving(true);
+        wait_until("a new frame", || {
+            scene.frame().is_some_and(|f| !Arc::ptr_eq(&f, &still))
+        });
+    }
+
+    #[test]
+    fn dropping_a_still_scene_ends_its_thread() {
+        let scene = rested_scene((300., 200.));
+        let shared = Arc::downgrade(&scene.shared);
+        drop(scene);
+        // The thread holds the other reference until it ends.
+        wait_until("the scene's thread ends", || shared.strong_count() == 0);
     }
 
     #[test]

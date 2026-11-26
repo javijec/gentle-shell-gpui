@@ -4015,7 +4015,16 @@ impl DesktopSession {
         &mut self,
         request: &UiRequest,
     ) -> Result<Option<DesktopRecord>, DesktopRpcError> {
-        let Some(record) = decode_widget(request)? else {
+        self.accept_decoded(decode_widget(request))
+    }
+
+    /// [`Self::accept`] for a request already run through [`decode_widget`]:
+    /// the same checks on its result, without decoding the record again.
+    pub fn accept_decoded(
+        &mut self,
+        decoded: Result<Option<DesktopRecord>, DesktopRpcError>,
+    ) -> Result<Option<DesktopRecord>, DesktopRpcError> {
+        let Some(record) = decoded? else {
             return Ok(None);
         };
         let switching = self

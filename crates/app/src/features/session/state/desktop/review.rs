@@ -14,7 +14,6 @@
 //! like the other slices. A Shell without the methods (4.8.0) or without
 //! `gentle-ai` never shows the control, and nothing shells out instead.
 
-use pi_rpc::UiRequest;
 use pi_rpc::desktop_rpc::{
     Capabilities, DesktopErrorCode, DesktopEvent, DesktopMethod, DesktopRecord, DesktopResponse,
     DesktopRpcError, DesktopSession, ReviewMode, ReviewScope, SetReviewModeOutcome,
@@ -255,17 +254,29 @@ impl Review {
         report(Report::Timeout)
     }
 
-    /// One incoming UI request; applies only the records this slice owns
-    /// (its two answers and `review_mode_changed`).
+    /// [`Self::apply_decoded`] for the raw request.
+    #[cfg(test)]
     pub(in crate::features::session) fn apply(
         &mut self,
         session: &mut DesktopSession,
-        request: &UiRequest,
+        request: &pi_rpc::UiRequest,
+    ) -> Applied {
+        self.apply_decoded(session, pi_rpc::desktop_rpc::decode_widget(request))
+    }
+
+    /// One incoming UI request; applies only the records this slice owns
+    /// (its two answers and `review_mode_changed`).
+    /// `decoded` is the request's [`pi_rpc::desktop_rpc::decode_widget`]
+    /// result, so the record is not decoded again.
+    pub(in crate::features::session) fn apply_decoded(
+        &mut self,
+        session: &mut DesktopSession,
+        decoded: Result<Option<DesktopRecord>, DesktopRpcError>,
     ) -> Applied {
         // The session clears the pending request while correlating, so the
         // method it answered is read first.
         let awaiting = session.pending().map(|(_, method)| method);
-        match session.accept(request) {
+        match session.accept_decoded(decoded) {
             Ok(Some(DesktopRecord::Response(response))) => match awaiting {
                 Some(DesktopMethod::GetReviewMode) => self.apply_read(response),
                 Some(DesktopMethod::SetReviewMode) => self.apply_change(response),

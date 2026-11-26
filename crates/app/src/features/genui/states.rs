@@ -73,9 +73,10 @@ impl MachineState {
         }
     }
 
-    fn shown(&self) -> Machine {
-        let mut shown = self.edits.working().clone();
-        if let Some(StateDrag::Move {
+    /// The working machine with a state being dragged where it would land,
+    /// or `None` when no state drag moves anything (the working one is shown).
+    fn preview(&self) -> Option<Machine> {
+        let Some(StateDrag::Move {
             id,
             start,
             grab,
@@ -83,17 +84,21 @@ impl MachineState {
             moved: true,
             ..
         }) = &self.drag
-        {
-            let _ = shown.apply(&Change::Move {
-                state: id.clone(),
-                x: snap(start.x + at.x - grab.x),
-                y: snap(start.y + at.y - grab.y),
-            });
-        }
-        shown
+        else {
+            return None;
+        };
+        let mut shown = self.edits.working().clone();
+        let _ = shown.apply(&Change::Move {
+            state: id.clone(),
+            x: snap(start.x + at.x - grab.x),
+            y: snap(start.y + at.y - grab.y),
+        });
+        Some(shown)
     }
 
-    fn layout_of(&mut self, spec: &Machine) -> Rc<Layout> {
+    /// The layout of `preview`, else of the working machine.
+    fn layout_of(&mut self, preview: Option<&Machine>) -> Rc<Layout> {
+        let spec = preview.unwrap_or(self.edits.working());
         match &self.laid {
             Some((laid, layout)) if laid == spec => layout.clone(),
             _ => {
@@ -164,17 +169,17 @@ impl PanelView {
         let Some(s) = state(self) else {
             return div().into_any_element();
         };
-        let shown = s.shown();
-        let l = s.layout_of(&shown);
+        let preview = s.preview();
+        let l = s.layout_of(preview.as_ref());
         let tweening = s.canvas.prepare(l.bounds, rem);
         self.canvas_frames(tweening, window, cx);
-        let drawn = self.states_drawn(&shown, &l, rem, cx);
+        let drawn = self.states_drawn(preview.as_ref(), &l, rem, cx);
         self.render_canvas(drawn, rem, cx)
     }
 
     fn states_drawn(
         &self,
-        shown: &Machine,
+        preview: Option<&Machine>,
         l: &Layout,
         rem: Pixels,
         cx: &mut Context<Self>,
@@ -189,6 +194,7 @@ impl PanelView {
                 empty: None,
             };
         };
+        let shown = preview.unwrap_or(s.edits.working());
         let c = &s.canvas;
         let scale = c.scale(rem);
         let visible = c.visible(rem).inflate(40.);

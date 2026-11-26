@@ -2,7 +2,7 @@
 //! [`PanelView`] in a headless window, edited by dragging, clicking and
 //! typing, checking the `/gentle-ui:event` command Send hands over.
 
-use gpui_kit::{Entity, TestAppContext, VisualTestContext, point, px};
+use gpui_kit::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px};
 use serde_json::{Value, json};
 
 use super::ops;
@@ -151,6 +151,47 @@ fn state_connect_name_and_change_a_kind(cx: &mut TestAppContext) {
             "added transition “stop” (“Running” → “Idle”)"
         ])
     );
+}
+
+#[gpui::test]
+fn state_dragging_a_state_moves_it(cx: &mut TestAppContext) {
+    let (host, cx) = canvas(
+        cx,
+        "state",
+        json!({
+            "states": [{"id": "start", "kind": "initial"}, "Idle", "Running"],
+            "transitions": [
+                {"from": "start", "to": "Idle"},
+                {"from": "Idle", "to": "Running", "event": "start"}
+            ]
+        }),
+    );
+    let before = bounds(cx, "genui-state-Idle");
+    let from = before.center();
+    let to = point(from.x + px(120.), from.y + px(40.));
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+    for step in 1..=6 {
+        let t = step as f32 / 6.;
+        let at = point(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+        cx.simulate_mouse_move(at, Some(MouseButton::Left), Modifiers::none());
+        cx.run_until_parked();
+    }
+    // Mid-drag the card is drawn where it would land; nothing is recorded yet.
+    let during = bounds(cx, "genui-state-Idle");
+    assert!(during.origin.x > before.origin.x + px(60.));
+    assert!(during.origin.y > before.origin.y + px(20.));
+    assert_eq!(pending(&host, cx), 0);
+
+    cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(pending(&host, cx), 1);
+    assert_eq!(bounds(cx, "genui-state-Idle").origin, during.origin);
+
+    click(cx, "genui-panel-send");
+    let event = last_event(&host, cx);
+    assert_eq!(ops(&event), vec!["move"]);
+    assert_eq!(event["changes"][0]["state"], "Idle");
+    assert_eq!(event["summary"], json!(["moved “Idle”"]));
 }
 
 #[gpui::test]

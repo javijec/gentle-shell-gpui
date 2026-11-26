@@ -118,7 +118,9 @@ impl SequenceState {
         shown
     }
 
-    fn layout_of(&mut self, spec: &Sequence) -> Rc<SequenceLayout> {
+    /// The layout of `preview`, else of the working spec.
+    fn layout_of(&mut self, preview: Option<&Sequence>) -> Rc<SequenceLayout> {
+        let spec = preview.unwrap_or(self.edits.working());
         match &self.laid {
             Some((laid, layout)) if laid == spec => layout.clone(),
             _ => {
@@ -208,21 +210,22 @@ impl PanelView {
         let Some(s) = state(self) else {
             return div().into_any_element();
         };
-        // A drag previews its reorder on the layout without it.
-        let shown = match &s.drag {
-            Some(_) => s.shown(&seq::layout(s.edits.working())),
-            None => s.edits.working().clone(),
-        };
-        let l = s.layout_of(&shown);
+        // A drag previews its reorder on the layout without it; otherwise
+        // the working spec is shown as is.
+        let preview = s
+            .drag
+            .as_ref()
+            .map(|_| s.shown(&seq::layout(s.edits.working())));
+        let l = s.layout_of(preview.as_ref());
         let tweening = s.canvas.prepare(l.bounds, rem);
         self.canvas_frames(tweening, window, cx);
-        let drawn = self.sequence_drawn(&shown, &l, rem, cx);
+        let drawn = self.sequence_drawn(preview.as_ref(), &l, rem, cx);
         self.render_canvas(drawn, rem, cx)
     }
 
     fn sequence_drawn(
         &self,
-        shown: &Sequence,
+        preview: Option<&Sequence>,
         l: &SequenceLayout,
         rem: Pixels,
         cx: &mut Context<Self>,
@@ -237,6 +240,7 @@ impl PanelView {
                 empty: None,
             };
         };
+        let shown = preview.unwrap_or(s.edits.working());
         let c = &s.canvas;
         let scale = c.scale(rem);
         let visible = c.visible(rem).inflate(60.);

@@ -79,10 +79,10 @@ impl ErdState {
         }
     }
 
-    /// The working spec, with a table being dragged where it would land.
-    fn shown(&self) -> Erd {
-        let mut shown = self.edits.working().clone();
-        if let Some(ErdDrag::Table {
+    /// The working spec with a table being dragged where it would land, or
+    /// `None` when no table drag moves anything (the working spec is shown).
+    fn preview(&self) -> Option<Erd> {
+        let Some(ErdDrag::Table {
             id,
             start,
             grab,
@@ -90,17 +90,21 @@ impl ErdState {
             moved: true,
             ..
         }) = &self.drag
-        {
-            let _ = shown.apply(&Change::Move {
-                table: id.clone(),
-                x: snap(start.x + at.x - grab.x),
-                y: snap(start.y + at.y - grab.y),
-            });
-        }
-        shown
+        else {
+            return None;
+        };
+        let mut shown = self.edits.working().clone();
+        let _ = shown.apply(&Change::Move {
+            table: id.clone(),
+            x: snap(start.x + at.x - grab.x),
+            y: snap(start.y + at.y - grab.y),
+        });
+        Some(shown)
     }
 
-    fn layout_of(&mut self, spec: &Erd) -> Rc<ErdLayout> {
+    /// The layout of `preview`, else of the working spec.
+    fn layout_of(&mut self, preview: Option<&Erd>) -> Rc<ErdLayout> {
+        let spec = preview.unwrap_or(self.edits.working());
         match &self.laid {
             Some((laid, layout)) if laid == spec => layout.clone(),
             _ => {
@@ -208,15 +212,21 @@ impl PanelView {
         let Some(s) = state(self) else {
             return div().into_any_element();
         };
-        let shown = s.shown();
-        let l = s.layout_of(&shown);
+        let preview = s.preview();
+        let l = s.layout_of(preview.as_ref());
         let tweening = s.canvas.prepare(l.bounds, rem);
         self.canvas_frames(tweening, window, cx);
-        let drawn = self.erd_drawn(&shown, &l, rem, cx);
+        let drawn = self.erd_drawn(preview.as_ref(), &l, rem, cx);
         self.render_canvas(drawn, rem, cx)
     }
 
-    fn erd_drawn(&self, shown: &Erd, l: &ErdLayout, rem: Pixels, cx: &mut Context<Self>) -> Drawn {
+    fn erd_drawn(
+        &self,
+        preview: Option<&Erd>,
+        l: &ErdLayout,
+        rem: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Drawn {
         let Some(s) = self.erd() else {
             return Drawn {
                 shapes: Vec::new(),
@@ -227,6 +237,7 @@ impl PanelView {
                 empty: None,
             };
         };
+        let shown = preview.unwrap_or(s.edits.working());
         let c = &s.canvas;
         let scale = c.scale(rem);
         let selected = s.selected.as_deref();

@@ -122,20 +122,19 @@ impl TimelineState {
         Some((id.clone(), start, end))
     }
 
-    /// The working timeline with a drag's dates, and the axis to keep.
-    fn shown(&self) -> (Timeline, Option<i64>) {
+    /// The working timeline with a drag's dates and the axis to keep, or
+    /// `None` when no bar drag moves anything (the working one is shown).
+    fn preview(&self) -> Option<(Timeline, Option<i64>)> {
+        let (task, start, end) = self.dragged()?;
         let mut shown = self.edits.working().clone();
-        match self.dragged() {
-            Some((task, start, end)) => {
-                let _ = shown.apply(&Change::SetDates { task, start, end });
-                let origin = self.laid.as_ref().map(|(_, _, l)| l.origin);
-                (shown, origin)
-            }
-            None => (shown, None),
-        }
+        let _ = shown.apply(&Change::SetDates { task, start, end });
+        let origin = self.laid.as_ref().map(|(_, _, l)| l.origin);
+        Some((shown, origin))
     }
 
-    fn layout_of(&mut self, spec: &Timeline, origin: Option<i64>) -> Rc<TimelineLayout> {
+    /// The layout of `preview`, else of the working timeline.
+    fn layout_of(&mut self, preview: Option<&Timeline>, origin: Option<i64>) -> Rc<TimelineLayout> {
+        let spec = preview.unwrap_or(self.edits.working());
         match &self.laid {
             Some((laid, at, layout)) if laid == spec && *at == origin => layout.clone(),
             _ => {
@@ -214,20 +213,21 @@ impl PanelView {
         let Some(s) = state(self) else {
             return div().into_any_element();
         };
-        let (shown, origin) = s.shown();
-        let l = s.layout_of(&shown, origin);
+        let (preview, origin) = s.preview().unzip();
+        let origin = origin.flatten();
+        let l = s.layout_of(preview.as_ref(), origin);
         let mut content = l.bounds;
         content.y -= AXIS_ROOM;
         content.h += AXIS_ROOM;
         let tweening = s.canvas.prepare(content, rem);
         self.canvas_frames(tweening, window, cx);
-        let drawn = self.timeline_drawn(&shown, &l, rem, cx);
+        let drawn = self.timeline_drawn(preview.as_ref(), &l, rem, cx);
         self.render_canvas(drawn, rem, cx)
     }
 
     fn timeline_drawn(
         &self,
-        shown: &Timeline,
+        preview: Option<&Timeline>,
         l: &TimelineLayout,
         rem: Pixels,
         cx: &mut Context<Self>,
@@ -242,6 +242,7 @@ impl PanelView {
                 empty: None,
             };
         };
+        let shown = preview.unwrap_or(s.edits.working());
         let c = &s.canvas;
         let scale = c.scale(rem);
         let visible = c.visible(rem);

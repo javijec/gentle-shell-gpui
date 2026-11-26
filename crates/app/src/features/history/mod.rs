@@ -312,19 +312,11 @@ impl HistoryView {
         };
         self.toplevel = toplevel;
         self.scope = history.scope.clone();
-        let graph = gentle_core::git::log::layout(&history.commits);
         // The list reads the commits from `self.commits`; the rest of the
         // read stays in `self.history`.
         let commits = std::mem::take(&mut history.commits);
-        self.commits = Rc::new(commits);
-        self.graph = Rc::new(graph);
-        let github = history.github.clone();
         self.history = Some(Some(history));
-        self.relayout();
-        let mut emails: Vec<&str> = self.commits.iter().map(|c| c.email.as_str()).collect();
-        emails.sort_unstable();
-        emails.dedup();
-        avatars::request(emails, github, cx);
+        self.show_commits(commits, cx);
         match &self.selected {
             Some(hash) if self.commits.iter().any(|c| &c.hash == hash) => {
                 // The same commit, re-read: an action may have changed it.
@@ -336,6 +328,18 @@ impl HistoryView {
                 self.detail = None;
             }
         }
+    }
+
+    /// List `commits` with their graph, and look up their authors' pictures.
+    fn show_commits(&mut self, commits: Vec<Commit>, cx: &mut Context<Self>) {
+        self.graph = Rc::new(gentle_core::git::log::layout(&commits));
+        self.commits = Rc::new(commits);
+        self.relayout();
+        let github = self.read().and_then(|h| h.github.clone());
+        let mut emails: Vec<&str> = self.commits.iter().map(|c| c.email.as_str()).collect();
+        emails.sort_unstable();
+        emails.dedup();
+        avatars::request(emails, github, cx);
     }
 
     /// Rebuild the rows from the loaded commits and the filter.
@@ -380,11 +384,41 @@ impl HistoryView {
         self.reload(cx);
     }
 
+    /// Show `PAGE` more commits. Only the commits after the loaded ones are
+    /// read, from the commit the last read started at, and added only if they
+    /// continue it; else (every ref, a moved tip) everything is read again.
+    /// The rest of the last read (total, branches, upstream) stays.
     fn load_earlier(&mut self, cx: &mut Context<Self>) {
-        if !self.loading {
-            self.limit += PAGE;
-            self.reload(cx);
+        if self.loading {
+            return;
         }
+        self.limit += PAGE;
+        let Some(tip) = self.commits.first().map(|c| c.hash.clone()) else {
+            self.reload(cx);
+            return;
+        };
+        let top = self.toplevel.clone();
+        let scope = self.scope.clone();
+        let skip = self.commits.len();
+        let n = self.limit.saturating_sub(skip);
+        self.loading = true;
+        self._load = cx.spawn(async move |this, cx| {
+            let page = cx
+                .background_executor()
+                .spawn(async move { git::earlier(&top, &scope, &tip, skip, n) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.loading = false;
+                let commits = page
+                    .and_then(|page| gentle_core::git::log::append_page(&this.commits, skip, page));
+                match commits {
+                    Some(commits) => this.show_commits(commits, cx),
+                    None => this.reload(cx),
+                }
+                cx.notify();
+            });
+        });
+        cx.notify();
     }
 
     fn select(&mut self, hash: String, cx: &mut Context<Self>) {
