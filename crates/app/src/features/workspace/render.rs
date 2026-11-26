@@ -461,12 +461,17 @@ impl Render for Workspace {
                 if full_window {
                     return view;
                 }
-                // Below the title bar, so its buttons can switch screens.
+                // Leave the activity rail clickable while a screen is open.
+                // First-run screens above still cover the entire window.
                 div()
                     .absolute()
                     .top(rems(TITLE_BAR_HEIGHT / 16.))
                     .left_0()
-                    .right_0()
+                    .right(rems(if has_files_sidebar {
+                        (right_sidebar::ACTIVITY_BAR_WIDTH + 6.) / 16.
+                    } else {
+                        0.
+                    }))
                     .bottom_0()
                     .child(view)
                     .into_any_element()

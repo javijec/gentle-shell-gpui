@@ -696,6 +696,7 @@ impl SessionView {
             }
         });
         self.sync_subagent_thread(cx);
+        cx.emit(super::SessionEvent::AgentsPanelChanged);
         cx.notify();
     }
 
@@ -704,6 +705,7 @@ impl SessionView {
         self._agents_ticker = Task::ready(());
         self.sync_subagent_thread(cx);
         self.stop_job_output(cx);
+        cx.emit(super::SessionEvent::AgentsPanelChanged);
         cx.notify();
     }
 
