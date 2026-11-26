@@ -92,7 +92,33 @@ impl Workspace {
             .gap_1()
             .py_2()
             .rounded_xl()
-            .bg(ui::panel());
+            .bg(ui::panel())
+            .child(
+                h_flex()
+                    .id("right-sidebar-toggle")
+                    .size(rems(34. / 16.))
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .text_color(ui::muted())
+                    .hover(|d| d.bg(ui::surface_hover()))
+                    .tooltip({
+                        let label = format!(
+                            "{} tools sidebar ({})",
+                            if self.sidebar_visible { "Hide" } else { "Show" },
+                            ui::shortcut("B")
+                        );
+                        move |window, cx| Tooltip::new(label.clone()).build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx)))
+                    .child(Icon::new(if self.sidebar_visible {
+                        IconName::PanelRightClose
+                    } else {
+                        IconName::PanelRightOpen
+                    })),
+            );
         for (index, (tool, icon, label)) in [
             (Tool::Files, IconName::Files, "Files"),
             (Tool::Git, IconName::GitBranch, "Git"),
