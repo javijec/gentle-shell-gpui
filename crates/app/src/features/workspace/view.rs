@@ -4,7 +4,6 @@ use super::badge::{Mark, workspace_avatar};
 use super::menu::WorkspaceMenuSource;
 use super::tab_panel::TabMenu;
 use super::*;
-use gpui_kit::component::Selectable as _;
 
 impl Workspace {
     // ── Rendering ───────────────────────────────────────────────────────────
