@@ -15,7 +15,7 @@ use crate::shared::pane::{PaneKind, PaneTree};
 mod presentation;
 mod store;
 
-pub use presentation::{LayoutPreset, LayoutProfiles, LayoutTool, ToolPlacement};
+pub use presentation::{LayoutPreset, LayoutProfile, LayoutProfiles, LayoutTool, ToolPlacement};
 #[cfg(test)]
 mod tests;
 

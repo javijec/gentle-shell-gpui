@@ -162,8 +162,15 @@ impl Default for LayoutProfiles {
 }
 
 impl LayoutProfiles {
+    pub fn profile(&self, preset: LayoutPreset) -> &LayoutProfile {
+        match preset {
+            LayoutPreset::Minimal => &self.minimal,
+            LayoutPreset::Expanded => &self.expanded,
+        }
+    }
+
     pub fn current(&self) -> &LayoutProfile {
-        match self.active { LayoutPreset::Minimal => &self.minimal, LayoutPreset::Expanded => &self.expanded }
+        self.profile(self.active)
     }
     pub fn current_mut(&mut self) -> &mut LayoutProfile {
         match self.active { LayoutPreset::Minimal => &mut self.minimal, LayoutPreset::Expanded => &mut self.expanded }
@@ -204,7 +211,8 @@ mod tests {
 
     #[test]
     fn minimal_matches_original_window_defaults() {
-        let p = LayoutProfiles::default();
+        let p = LayoutProfiles::from_saved(&SavedState::default());
+        assert_eq!(p.active, LayoutPreset::Minimal);
         let current = p.current();
         assert!(current.tabs_visible && current.title_utilities && current.original_controls);
         assert_eq!(current.tab_layout, TabLayout::Horizontal);
@@ -212,6 +220,18 @@ mod tests {
         assert_eq!(current.sidebar_visible, SavedState::default().sidebar);
         assert!(current.shortcuts.iter().all(|s| s.placement == ToolPlacement::Hidden));
         assert!(!p.expanded.original_controls);
+    }
+
+    #[test]
+    fn reopening_keeps_the_selected_preset_instead_of_resetting_it() {
+        let mut profiles = LayoutProfiles::default();
+        profiles.active = LayoutPreset::Expanded;
+        profiles.expanded.place(LayoutTool::Git, ToolPlacement::Title);
+        let saved = SavedState {
+            presentation: Some(profiles.clone()),
+            ..SavedState::default()
+        };
+        assert_eq!(LayoutProfiles::from_saved(&saved), profiles);
     }
 
     #[test]
