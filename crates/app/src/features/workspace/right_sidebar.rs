@@ -4,28 +4,23 @@ use super::*;
 
 pub(super) const ACTIVITY_BAR_WIDTH: f32 = 42.;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tool {
-    Files,
-    Git,
-    Engram,
-    History,
-}
+#[derive(Clone, Copy)]
+struct ShortcutDrag(LayoutTool);
 
 impl Workspace {
-    fn active_right_tool(&self, cx: &App) -> Tool {
+    pub(super) fn active_right_tool(&self, cx: &App) -> LayoutTool {
         if self.sidebar_history_active {
-            Tool::History
+            LayoutTool::History
         } else if self.sidebar_memory_active {
-            Tool::Engram
+            LayoutTool::Engram
         } else if self
             .sidebar
             .as_ref()
             .is_some_and(|tree| tree.read(cx).is_git_tab())
         {
-            Tool::Git
+            LayoutTool::Git
         } else {
-            Tool::Files
+            self.sidebar.as_ref().map_or(self.layout_profiles.current().dock, |_| LayoutTool::Files)
         }
     }
 
@@ -91,9 +86,9 @@ impl Workspace {
         }
     }
 
-    fn select_right_tool(
+    pub(super) fn select_right_tool(
         &mut self,
-        tool: Tool,
+        tool: LayoutTool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -101,18 +96,18 @@ impl Workspace {
             self.toggle_sidebar(cx);
             return;
         }
-        if tool == Tool::History {
+        if tool == LayoutTool::History {
             let cwd = self.root().to_path_buf();
             self.show_sidebar_history(cwd, window, cx);
             return;
         }
         self.sidebar_history_active = false;
-        self.sidebar_memory_active = tool == Tool::Engram;
+        self.sidebar_memory_active = tool == LayoutTool::Engram;
         if self.sidebar_memory_active {
             self.ensure_sidebar_memory(window, cx);
         } else if let Some(tree) = self.sidebar.clone() {
             tree.update(cx, |tree, cx| {
-                tree.select_sidebar_tool(tool == Tool::Git, window, cx);
+                tree.select_sidebar_tool(tool == LayoutTool::Git, window, cx);
             });
         }
         if self.sidebar_visible {
@@ -189,10 +184,229 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn render_right_activity_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let active = self.active_right_tool(cx);
+    pub(super) fn navigation_visible(&self) -> bool {
+        let profile = self.layout_profiles.current();
+        profile.workspace_visible
+            || (profile.tabs_visible && self.tab_layout == TabLayout::Vertical)
+    }
+
+    /// Capture live resize/visibility changes in just the active preset.
+    pub(super) fn presentation_snapshot(&self, cx: &App) -> LayoutProfiles {
+        let mut profiles = self.layout_profiles.clone();
+        let p = profiles.current_mut();
+        p.tab_layout = self.tab_layout;
+        p.sidebar_visible = self.sidebar_visible;
+        p.dock = self.active_right_tool(cx);
+        p.tabs_width = self.tabs_sidebar_width;
+        p.files_width = self.files_sidebar_width;
+        profiles
+    }
+
+    pub(super) fn apply_presentation(
+        &mut self,
+        mut profiles: LayoutProfiles,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        profiles.normalize();
+        let p = profiles.current().clone();
+        let old_nav = self.navigation_visible();
+        let old_dock = self.active_right_tool(cx);
+        self.cancel_workspace_rename_state(cx);
+        self.layout_profiles = profiles;
+        self.tab_layout = p.tab_layout;
+        self.sidebar_compact = !p.workspace_visible;
+        self.tabs_sidebar_width = p.tabs_width;
+        self.files_sidebar_width = p.files_width;
+        if old_nav != self.navigation_visible() {
+            self.tabs_sidebar_motion.retarget(old_nav, cx.reduce_motion());
+        }
+        if old_dock != p.dock {
+            self.sidebar_memory_active = p.dock == LayoutTool::Engram;
+            self.sidebar_history_active = p.dock == LayoutTool::History;
+            if self.sidebar_memory_active {
+                self.ensure_sidebar_memory(window, cx);
+            } else if self.sidebar_history_active {
+                self.ensure_sidebar_history(self.root().to_path_buf(), window, cx);
+            } else if let Some(tree) = self.sidebar.clone() {
+                tree.update(cx, |tree, cx| {
+                    tree.select_sidebar_tool(p.dock == LayoutTool::Git, window, cx);
+                });
+            }
+        }
+        if self.sidebar_visible != p.sidebar_visible {
+            self.toggle_sidebar(cx);
+        } else {
+            cx.emit(WorkspaceEvent::FilesVisibilityChanged(self.files_sidebar_visible()));
+        }
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    pub(super) fn show_navigation(&mut self, cx: &mut Context<Self>) {
+        let was_open = self.navigation_visible();
+        let p = self.layout_profiles.current_mut();
+        p.tabs_visible = !p.tabs_visible;
+        p.workspace_visible = p.tabs_visible && self.tab_layout == TabLayout::Vertical;
+        self.sidebar_compact = !p.workspace_visible;
+        if was_open != self.navigation_visible() {
+            self.tabs_sidebar_motion.retarget(was_open, cx.reduce_motion());
+        }
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    fn shortcut_selected(&self, tool: LayoutTool, cx: &App) -> bool {
+        if tool.docked() {
+            return self.sidebar_visible && self.active_right_tool(cx) == tool;
+        }
+        match tool {
+            LayoutTool::Agents => self.agents_window_open(cx),
+            LayoutTool::Devices => self.devices.read(cx).visible(),
+            LayoutTool::Tower => self.shown_tower().is_some(),
+            LayoutTool::Docs => matches!(self.overlay, Some((Overlay::Docs(_), _))),
+            LayoutTool::Usage => matches!(self.overlay, Some((Overlay::Usage(_), _))),
+            LayoutTool::Profiles => matches!(self.overlay, Some((Overlay::Profiles(_), _))),
+            LayoutTool::Sessions => matches!(self.overlay, Some((Overlay::Sessions(_), _))),
+            LayoutTool::Providers => matches!(self.overlay, Some((Overlay::Providers(_), _))),
+            LayoutTool::Configuration => matches!(self.overlay, Some((Overlay::Settings(_), _))),
+            _ => false,
+        }
+    }
+
+    fn activate_shortcut(
+        &mut self,
+        tool: LayoutTool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if tool.docked() {
+            if self.overlay.is_some() {
+                self.close_overlay(window, cx);
+            }
+            self.select_right_tool(tool, window, cx);
+            return;
+        }
+        let selected = self.shortcut_selected(tool, cx);
+        let action = match tool {
+            LayoutTool::Agents => PaletteAction::Agents,
+            LayoutTool::Docs => PaletteAction::Docs,
+            LayoutTool::Devices => PaletteAction::Devices,
+            LayoutTool::Usage => PaletteAction::Usage,
+            LayoutTool::Tower => PaletteAction::Screen(Screen::Tower),
+            LayoutTool::Profiles => PaletteAction::Profiles,
+            LayoutTool::Sessions => PaletteAction::Sessions,
+            LayoutTool::Providers => PaletteAction::Providers,
+            LayoutTool::Configuration => PaletteAction::Settings,
+            _ => return,
+        };
+        self.toggle_rail_command(action, selected, window, cx);
+    }
+
+    fn move_shortcut(
+        &mut self,
+        tool: LayoutTool,
+        placement: ToolPlacement,
+        before: Option<LayoutTool>,
+        cx: &mut Context<Self>,
+    ) {
+        let p = self.layout_profiles.current_mut();
+        p.place(tool, placement);
+        if let Some(target) = before {
+            p.move_before(tool, target);
+        }
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    fn shortcut_menu(
+        &mut self,
+        tool: LayoutTool,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let weak = cx.entity().downgrade();
+        let current = self.layout_profiles.current().shortcuts.iter()
+            .find(|s| s.tool == tool).map(|s| s.placement);
+        self.open_owned_menu("layout-tool-menu", position, move |mut menu, _, _| {
+            for placement in ToolPlacement::ALL {
+                let weak = weak.clone();
+                let label = if current == Some(placement) {
+                    format!("✓ {}", placement.label())
+                } else {
+                    placement.label().to_string()
+                };
+                menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.close_menu(window, cx);
+                        this.move_shortcut(tool, placement, None, cx);
+                    });
+                }));
+            }
+            menu
+        }, window, cx);
+    }
+
+    fn shortcut_button(
+        &self,
+        tool: LayoutTool,
+        placement: ToolPlacement,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.shortcut_selected(tool, cx);
+        let size = if placement == ToolPlacement::Title { 28. } else { 34. };
+        h_flex()
+            .id(("layout-shortcut", tool as usize))
+            .size(rems(size / 16.))
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .cursor_pointer()
+            .when(selected, |d| d.bg(ui::raised()).text_color(ui::fg()))
+            .when(!selected, |d| d.text_color(ui::muted()).hover(|d| d.bg(ui::surface_hover())))
+            .tooltip(move |window, cx| Tooltip::new(tool.label()).build(window, cx))
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                this.shortcut_menu(tool, event.position, window, cx);
+            }))
+            .on_click(cx.listener(move |this, _, window, cx| this.activate_shortcut(tool, window, cx)))
+            .on_drag(ShortcutDrag(tool), |drag, _, _, cx| {
+                cx.new(|_| DragChip(drag.0.label().into()))
+            })
+            .drag_over::<ShortcutDrag>(|style, _, _, _| style.bg(ui::petal().opacity(0.18)))
+            .on_drop(cx.listener(move |this, drag: &ShortcutDrag, _, cx| {
+                cx.stop_propagation();
+                this.move_shortcut(drag.0, placement, Some(tool), cx);
+            }))
+            .child(Icon::new(tool.icon()))
+    }
+
+    pub(super) fn render_title_shortcuts(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let placement = ToolPlacement::Title;
+        h_flex()
+            .id("layout-title-tools")
+            .gap_1()
+            .min_w(rems(20. / 16.))
+            .drag_over::<ShortcutDrag>(|style, _, _, _| style.bg(ui::petal().opacity(0.18)))
+            .on_drop(cx.listener(move |this, drag: &ShortcutDrag, _, cx| {
+                this.move_shortcut(drag.0, placement, None, cx);
+            }))
+            .children(self.layout_profiles.current().shortcuts.iter()
+                .filter(|s| s.placement == placement)
+                .map(|s| self.shortcut_button(s.tool, placement, cx)))
+    }
+
+    pub(super) fn render_activity_bar(
+        &self,
+        placement: ToolPlacement,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let panel_open = self.rail_has_open_panel(cx);
+        let id = if placement == ToolPlacement::Left { "layout-left-rail" } else { "layout-right-rail" };
         let mut rail = v_flex()
+            .id(id)
             .w(rems(ACTIVITY_BAR_WIDTH / 16.))
             .h_full()
             .flex_none()
@@ -201,7 +415,12 @@ impl Workspace {
             .py_2()
             .rounded_xl()
             .bg(ui::panel())
-            .child(
+            .drag_over::<ShortcutDrag>(|style, _, _, _| style.bg(ui::petal().opacity(0.18)))
+            .on_drop(cx.listener(move |this, drag: &ShortcutDrag, _, cx| {
+                this.move_shortcut(drag.0, placement, None, cx);
+            }));
+        if placement == ToolPlacement::Right {
+            rail = rail.child(
                 h_flex()
                     .id("right-sidebar-toggle")
                     .size(rems(34. / 16.))
@@ -212,176 +431,24 @@ impl Workspace {
                     .cursor_pointer()
                     .text_color(ui::muted())
                     .hover(|d| d.bg(ui::surface_hover()))
-                    .tooltip({
-                        let label = format!(
-                            "{} tools sidebar ({})",
-                            if panel_open { "Hide" } else { "Show" },
-                            ui::shortcut("B")
-                        );
-                        move |window, cx| Tooltip::new(label.clone()).build(window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_rail_panels(window, cx);
-                    }))
-                    .child(Icon::new(if panel_open {
-                        IconName::PanelRightClose
-                    } else {
-                        IconName::PanelRightOpen
-                    })),
-            );
-        for (index, (tool, icon, label)) in [
-            (Tool::Files, IconName::Files, "Files"),
-            (Tool::Git, IconName::GitBranch, "Git"),
-            (Tool::Engram, IconName::Brain, "Engram"),
-            (Tool::History, IconName::GitGraph, "Git history"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let selected = self.sidebar_visible && tool == active;
-            rail = rail.child(
-                h_flex()
-                    .id(("right-tool", index))
-                    .size(rems(34. / 16.))
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(ui::raised()).text_color(ui::fg()))
-                    .when(!selected, |d| {
-                        d.text_color(ui::muted()).hover(|d| d.bg(ui::surface_hover()))
-                    })
-                    .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.overlay.is_some() {
-                            this.close_overlay(window, cx);
-                        }
-                        this.select_right_tool(tool, window, cx);
-                    }))
-                    .child(Icon::new(icon)),
+                    .tooltip(move |window, cx| Tooltip::new(if panel_open { "Hide panels" } else { "Show panel" }).build(window, cx))
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_rail_panels(window, cx)))
+                    .child(Icon::new(if panel_open { IconName::PanelRightClose } else { IconName::PanelRightOpen })),
             );
         }
-        // Native screens share the command palette's actions. Keep them
-        // above the bottom administration shortcuts, scrolling if needed.
-        let mut commands = v_flex()
-            .id("right-native-commands")
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .items_center()
-            .gap_1()
-            .overflow_y_scroll()
-            .child(div().flex_1().min_h_0());
-        for (index, (icon, label, detail, action)) in
-            crate::features::palette::sidebar_commands(self.tab_layout)
-                .into_iter()
-                .enumerate()
-        {
-            // History is now a docked tool in the top group.
-            if action == PaletteAction::History {
-                continue;
-            }
-            let selected = match &action {
-                PaletteAction::Devices => self.devices.read(cx).visible(),
-                PaletteAction::Agents => self.agents_window_open(cx),
-                PaletteAction::Screen(Screen::Tower) => self.shown_tower().is_some(),
-                PaletteAction::Docs => matches!(self.overlay, Some((Overlay::Docs(_), _))),
-                PaletteAction::Usage => matches!(self.overlay, Some((Overlay::Usage(_), _))),
-                _ => false,
-            };
-            let tooltip = format!("{label} — {detail}");
-            commands = commands.child(
-                h_flex()
-                    .id(("right-native-command", index))
-                    .size(rems(34. / 16.))
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(ui::raised()).text_color(ui::fg()))
-                    .when(!selected, |d| {
-                        d.text_color(ui::muted()).hover(|d| d.bg(ui::surface_hover()))
-                    })
-                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.toggle_rail_command(action.clone(), selected, window, cx);
-                    }))
-                    .child(Icon::new(icon)),
-            );
-        }
-        rail = rail.child(commands);
-        // These screens keep their existing overlay behavior. Engram is already
-        // available as a docked tool above, so it does not need a duplicate.
-        type Open = fn(&mut Workspace, &mut Window, &mut Context<Workspace>);
-        let screens: [(&str, IconName, &str, bool, Open); 4] = [
-            (
-                "right-profiles",
-                IconName::Route,
-                "Profiles",
-                matches!(self.overlay, Some((Overlay::Profiles(_), _))),
-                Self::open_profiles,
-            ),
-            (
-                "right-sessions",
-                IconName::RotateCcwClock,
-                "Sessions",
-                matches!(self.overlay, Some((Overlay::Sessions(_), _))),
-                Self::open_sessions,
-            ),
-            (
-                "right-providers",
-                IconName::KeyRound,
-                "Providers",
-                matches!(self.overlay, Some((Overlay::Providers(_), _))),
-                Self::open_providers,
-            ),
-            (
-                "right-configuration",
-                IconName::Settings,
-                "Configuration",
-                matches!(self.overlay, Some((Overlay::Settings(_), _))),
-                Self::open_settings,
-            ),
-        ];
-        for (id, icon, label, selected, open) in screens {
-            let tooltip = match id {
-                "right-configuration" => format!(
-                    "{label} ({})",
-                    ui::platform_shortcut("⌘,", "Ctrl+,")
-                ),
-                "right-sessions" => format!(
-                    "{label} ({})",
-                    ui::platform_shortcut("⌘⇧O", "Ctrl+Shift+O")
-                ),
-                _ => label.to_string(),
-            };
-            rail = rail.child(
-                h_flex()
-                    .id(id)
-                    .size(rems(34. / 16.))
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(ui::raised()).text_color(ui::fg()))
-                    .when(!selected, |d| {
-                        d.text_color(ui::muted()).hover(|d| d.bg(ui::surface_hover()))
-                    })
-                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.overlay.is_some() {
-                            this.close_overlay(window, cx);
-                        }
-                        if !selected {
-                            open(this, window, cx);
-                        }
-                    }))
-                    .child(Icon::new(icon)),
-            );
-        }
-        rail
+        let scroll_id = if placement == ToolPlacement::Left { "layout-left-scroll" } else { "layout-right-scroll" };
+        rail.child(
+            v_flex()
+                .id(scroll_id)
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .items_center()
+                .gap_1()
+                .overflow_y_scroll()
+                .children(self.layout_profiles.current().shortcuts.iter()
+                    .filter(|s| s.placement == placement)
+                    .map(|s| self.shortcut_button(s.tool, placement, cx))),
+        )
     }
 }

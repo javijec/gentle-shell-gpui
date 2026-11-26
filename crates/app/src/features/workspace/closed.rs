@@ -339,6 +339,7 @@ mod tests {
                     sidebar_history_active: false,
                     sidebar_history: None,
                     sidebar_visible: false,
+                    layout_profiles: crate::features::workspaces::LayoutProfiles::from_saved(&crate::features::workspaces::SavedState { version: 1, ..Default::default() }),
                     tab_layout: TabLayout::Horizontal,
                     tabs_sidebar_motion: Default::default(),
                     files_sidebar_motion: Default::default(),

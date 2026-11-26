@@ -38,7 +38,8 @@ use crate::features::tower::TowerView;
 use crate::features::usage::{UsageEvent, UsageView};
 use crate::features::welcome::{WelcomeEvent, WelcomeView};
 use crate::features::workspaces::{
-    self, Badge, SavedPane, SavedState, SavedTab, SavedWorkspace, TabLayout,
+    self, Badge, LayoutProfiles, LayoutTool, ToolPlacement, SavedPane, SavedState, SavedTab,
+    SavedWorkspace, TabLayout,
 };
 use crate::shared::pane::{
     AskAgent, CloseViewer, OpenCommitDiff, OpenTerminalAt, PaneFactories, PaneId, PaneItem,
@@ -424,6 +425,7 @@ pub struct Workspace {
     sidebar_history_active: bool,
     sidebar_history: Option<(PathBuf, Entity<crate::features::history::HistoryView>)>,
     sidebar_visible: bool,
+    layout_profiles: LayoutProfiles,
     tabs_sidebar_motion: sidebar_motion::SidebarMotion,
     files_sidebar_motion: sidebar_motion::SidebarMotion,
     tab_layout: TabLayout,
@@ -501,6 +503,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Self {
         let saved = workspaces::load();
+        let layout_profiles = LayoutProfiles::from_saved(&saved);
+        let presentation = layout_profiles.current().clone();
         let mut restored = Vec::new();
         let spaces: Vec<Space> = saved
             .workspaces
@@ -577,20 +581,21 @@ impl Workspace {
             overlay: None,
             web_shown: Default::default(),
             sidebar: None,
-            sidebar_memory_active: false,
+            sidebar_memory_active: presentation.dock == LayoutTool::Engram,
             sidebar_memory: None,
-            sidebar_history_active: false,
+            sidebar_history_active: presentation.dock == LayoutTool::History,
             sidebar_history: None,
-            sidebar_visible: saved.sidebar,
+            sidebar_visible: presentation.sidebar_visible,
+            layout_profiles,
             tabs_sidebar_motion: Default::default(),
             files_sidebar_motion: Default::default(),
-            tab_layout: saved.tab_layout,
-            sidebar_compact: saved.sidebar_compact,
+            tab_layout: presentation.tab_layout,
+            sidebar_compact: !presentation.workspace_visible,
             tabs_sidebar_width: gentle_core::workspaces::saved_sidebar_width(
-                saved.tabs_sidebar_width,
+                presentation.tabs_width,
             ),
             files_sidebar_width: gentle_core::workspaces::saved_sidebar_width(
-                saved.files_sidebar_width,
+                presentation.files_width,
             ),
             badge_picker: None,
             open_menu: None,
@@ -740,7 +745,7 @@ impl Workspace {
         let git = self
             .sidebar
             .as_ref()
-            .is_some_and(|tree| tree.read(cx).is_git_tab());
+            .map_or(self.layout_profiles.current().dock == LayoutTool::Git, |tree| tree.read(cx).is_git_tab());
         let visible = self.files_sidebar_visible();
         view.update(cx, |tree, cx| {
             tree.select_sidebar_tool(git, window, cx);

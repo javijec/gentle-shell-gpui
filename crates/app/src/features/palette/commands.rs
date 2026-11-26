@@ -212,6 +212,9 @@ pub(super) fn screen_rows(tab_layout: TabLayout) -> Vec<Row> {
                 PaletteAction::SetTabLayout(TabLayout::Horizontal),
             ),
         },
+        row(IconName::Files, "Files", "Show or hide the Files panel", PaletteAction::OpenFiles),
+        row(IconName::GitBranch, "Git changes", "Show or hide Changes and Branches", PaletteAction::OpenGit),
+        row(IconName::PanelLeft, "Toggle workspace navigation", "Show or hide tabs and workspace navigation", PaletteAction::ToggleNavigation),
         row(
             IconName::PanelRight,
             "Toggle Files sidebar",
@@ -303,27 +306,6 @@ mod tests {
                 row.title == expected_title && row.action == PaletteAction::SetTabLayout(target)
             }));
             assert!(!rows.iter().any(|row| row.title == absent));
-        }
-    }
-
-    #[test]
-    fn sidebar_shortcuts_only_include_additional_screens() {
-        for layout in [TabLayout::Horizontal, TabLayout::Vertical] {
-            let actions: Vec<_> = super::super::sidebar_commands(layout)
-                .into_iter()
-                .map(|(_, _, _, action)| action)
-                .collect();
-            assert_eq!(
-                actions,
-                [
-                    PaletteAction::Agents,
-                    PaletteAction::Docs,
-                    PaletteAction::History,
-                    PaletteAction::Devices,
-                    PaletteAction::Usage,
-                    PaletteAction::Screen(Screen::Tower),
-                ]
-            );
         }
     }
 

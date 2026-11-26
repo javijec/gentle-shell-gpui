@@ -60,7 +60,7 @@ impl Workspace {
         self.close_badge_picker(window, cx);
     }
 
-    fn open_owned_menu<F>(
+    pub(super) fn open_owned_menu<F>(
         &mut self,
         key: &'static str,
         position: Point<Pixels>,

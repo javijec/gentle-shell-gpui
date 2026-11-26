@@ -119,6 +119,9 @@ impl Workspace {
             PaletteAction::ClosePane => self.on_close_pane(&ClosePane, window, cx),
             PaletteAction::ReopenClosed => self.reopen_closed(window, cx),
             PaletteAction::ToggleSidebar => self.toggle_sidebar(cx),
+            PaletteAction::OpenFiles => self.select_right_tool(LayoutTool::Files, window, cx),
+            PaletteAction::OpenGit => self.select_right_tool(LayoutTool::Git, window, cx),
+            PaletteAction::ToggleNavigation => self.show_navigation(cx),
             PaletteAction::SetTabLayout(layout) => self.set_tab_layout(layout, cx),
             PaletteAction::Agents => {
                 if let Some(session) = tab {
@@ -474,14 +477,14 @@ impl Workspace {
         self.start_active_session(window, cx);
         let cwd = self.active_cwd(cx);
         let session = self.active_session();
-        let tab_layout = self.tab_layout;
-        let view = cx.new(|cx| SettingsView::new(cwd, tab_layout, session, window, cx));
+        let profiles = self.presentation_snapshot(cx);
+        let view = cx.new(|cx| SettingsView::new(cwd, profiles, session, window, cx));
         let subscription = cx.subscribe_in(
             &view,
             window,
             |this, view, event: &SettingsEvent, window, cx| match event {
                 SettingsEvent::Close => this.close_overlay(window, cx),
-                SettingsEvent::TabLayoutChanged(layout) => this.set_tab_layout(*layout, cx),
+                SettingsEvent::PresentationChanged(profiles) => this.apply_presentation(profiles.clone(), window, cx),
                 SettingsEvent::OpenProfiles => this.open_profiles(window, cx),
                 SettingsEvent::Changed => {
                     for tab in this.sessions() {

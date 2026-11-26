@@ -24,28 +24,6 @@ use commands::{command_row, screen_rows};
 pub use sources::switch_branch;
 use sources::{list_branches, walk_files};
 
-/// Native screen shortcuts for the activity rail. Reuse the palette's
-/// labels, icons and actions; editing/layout commands stay in Commands.
-pub(crate) fn sidebar_commands(
-    tab_layout: TabLayout,
-) -> Vec<(IconName, String, String, PaletteAction)> {
-    screen_rows(tab_layout)
-        .into_iter()
-        .filter(|row| {
-            matches!(
-                &row.action,
-                PaletteAction::Agents
-                    | PaletteAction::Docs
-                    | PaletteAction::History
-                    | PaletteAction::Devices
-                    | PaletteAction::Usage
-                    | PaletteAction::Screen(Screen::Tower)
-            )
-        })
-        .map(|row| (row.icon, row.title, row.detail, row.action))
-        .collect()
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PaletteAction {
     Providers,
@@ -81,6 +59,9 @@ pub enum PaletteAction {
     ClosePane,
     ReopenClosed,
     ToggleSidebar,
+    OpenFiles,
+    OpenGit,
+    ToggleNavigation,
     SetTabLayout(TabLayout),
     /// Send `/name` as a prompt in the active agent pane.
     Command(String),

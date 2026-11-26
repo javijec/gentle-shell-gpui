@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
-use crate::{features::app_update, features::workspaces::TabLayout};
+use crate::{features::app_update, features::workspaces::LayoutProfiles};
 
 mod agent_ui;
 mod app;
@@ -50,8 +50,8 @@ use snapshot::Snapshot;
 
 pub struct SettingsView {
     cwd: PathBuf,
-    /// Tab placement is owned and persisted by the workspace.
-    tab_layout: TabLayout,
+    /// The two independently editable presentation presets.
+    layout_profiles: LayoutProfiles,
     page: SettingsPage,
     body_scroll: ScrollHandle,
     settings_search: Entity<InputState>,
@@ -114,7 +114,7 @@ impl EventEmitter<SettingsEvent> for SettingsView {}
 impl SettingsView {
     pub fn new(
         cwd: PathBuf,
-        tab_layout: TabLayout,
+        layout_profiles: LayoutProfiles,
         session: Option<Entity<crate::features::session::SessionView>>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -145,7 +145,7 @@ impl SettingsView {
         });
         let mut this = Self {
             cwd,
-            tab_layout,
+            layout_profiles,
             page: SettingsPage::default(),
             body_scroll: ScrollHandle::new(),
             settings_search,

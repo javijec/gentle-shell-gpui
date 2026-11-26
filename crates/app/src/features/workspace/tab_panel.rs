@@ -12,26 +12,33 @@ fn platform_select_modifier(event: &ClickEvent, cx: &App) -> bool {
 impl Workspace {
     /// The main navigator stays on the left; toggle only its width.
     pub(super) fn toggle_sidebar_compact(&mut self, cx: &mut Context<Self>) {
-        if self.tab_layout == TabLayout::Horizontal {
+        if self.tab_layout == TabLayout::Horizontal || !self.layout_profiles.current().tabs_visible {
             self.sidebar_compact = false;
             self.set_tab_layout(TabLayout::Vertical, cx);
             return;
         }
         self.cancel_workspace_rename_state(cx);
         self.sidebar_compact = !self.sidebar_compact;
+        self.layout_profiles.current_mut().workspace_visible = !self.sidebar_compact;
         self.schedule_save(cx);
         cx.notify();
     }
 
     /// All presentation controls share one idempotent, persisted state change.
     pub(super) fn set_tab_layout(&mut self, layout: TabLayout, cx: &mut Context<Self>) {
-        if self.tab_layout == layout {
+        if self.tab_layout == layout && self.layout_profiles.current().tabs_visible {
             return;
         }
         self.cancel_workspace_rename_state(cx);
-        self.tabs_sidebar_motion
-            .retarget(self.tab_layout == TabLayout::Vertical, cx.reduce_motion());
+        let was_open = self.navigation_visible();
+        let profile = self.layout_profiles.current_mut();
+        profile.tabs_visible = true;
+        profile.tab_layout = layout;
+        profile.workspace_visible = layout == TabLayout::Vertical && !self.sidebar_compact;
         self.tab_layout = layout;
+        if was_open != self.navigation_visible() {
+            self.tabs_sidebar_motion.retarget(was_open, cx.reduce_motion());
+        }
         // File browsing is a separate right sidebar; switching tab placement
         // must neither open nor hide that independent panel.
         self.schedule_save(cx);
@@ -964,6 +971,7 @@ mod tests {
                         sidebar_history_active: false,
                         sidebar_history: None,
                         sidebar_visible: false,
+                        layout_profiles: crate::features::workspaces::LayoutProfiles::from_saved(&crate::features::workspaces::SavedState { version: 1, ..Default::default() }),
                         tab_layout: TabLayout::Horizontal,
                         tabs_sidebar_motion: Default::default(),
                         files_sidebar_motion: Default::default(),

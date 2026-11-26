@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::shared::pane::{PaneKind, PaneTree};
 
+mod presentation;
 mod store;
+
+pub use presentation::{LayoutPreset, LayoutProfile, LayoutProfiles, LayoutTool, ToolPlacement};
 #[cfg(test)]
 mod tests;
 
@@ -291,6 +294,9 @@ pub struct SavedState {
     /// Width of the right Files sidebar (px at 100 % interface size).
     #[serde(default = "default_sidebar_width")]
     pub files_sidebar_width: f32,
+    /// Optional for compatibility with older workspace snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "known_or_none")]
+    pub presentation: Option<LayoutProfiles>,
 }
 
 fn shown() -> bool {
@@ -313,6 +319,7 @@ impl Default for SavedState {
             sidebar_compact: false,
             tabs_sidebar_width: default_sidebar_width(),
             files_sidebar_width: default_sidebar_width(),
+            presentation: None,
         }
     }
 }
