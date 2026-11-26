@@ -21,6 +21,7 @@ pub enum MemoryEvent {
 
 pub struct MemoryView {
     cwd: PathBuf,
+    docked: bool,
     project: Option<String>,
     all_projects: bool,
     query: Entity<InputState>,
@@ -53,6 +54,7 @@ impl MemoryView {
         });
         let mut this = Self {
             cwd,
+            docked: false,
             project: target.project,
             all_projects: false,
             query,
@@ -67,6 +69,13 @@ impl MemoryView {
         };
         this.reload(cx);
         this
+    }
+
+    /// Reuse the same memory model in the narrow workspace sidebar.
+    pub fn new_docked(cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut view = Self::new(cwd, MemoryTarget::default(), window, cx);
+        view.docked = true;
+        view
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {

@@ -202,7 +202,7 @@ pub fn attach_sidebar(
                 let _ = visible.update(cx, |tree, cx| tree.set_visible(*shown, cx));
             }
         });
-        workspace.update(cx, |workspace, cx| workspace.set_sidebar(tree.into(), cx));
+        workspace.update(cx, |workspace, cx| workspace.set_sidebar(tree, window, cx));
         toggled
     }
 
