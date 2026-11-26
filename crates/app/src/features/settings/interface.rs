@@ -393,7 +393,7 @@ impl SettingsView {
                         Button::new("layout-reset-preset")
                             .ghost()
                             .xsmall()
-                            .icon(Icon::new(IconName::RotateCcw))
+                            .icon(Icon::new(IconName::RefreshCw))
                             .label("Reset preset")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.edit_presentation(LayoutProfiles::reset, cx);
