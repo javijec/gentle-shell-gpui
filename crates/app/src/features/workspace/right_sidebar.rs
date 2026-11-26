@@ -122,7 +122,62 @@ impl Workspace {
                     .child(Icon::new(icon)),
             );
         }
-        rail = rail.child(div().flex_1());
+        // Native commands share the same actions as the command palette.
+        // Scroll only this middle group, keeping the main tools and the
+        // existing bottom shortcuts visible even in a short window.
+        let mut commands = v_flex()
+            .id("right-native-commands")
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .items_center()
+            .gap_1()
+            .overflow_y_scroll();
+        for (index, (icon, label, detail, action)) in
+            crate::features::palette::sidebar_commands(self.tab_layout)
+                .into_iter()
+                .enumerate()
+        {
+            let selected = match &action {
+                PaletteAction::Docs => matches!(self.overlay, Some((Overlay::Docs(_), _))),
+                PaletteAction::Usage => matches!(self.overlay, Some((Overlay::Usage(_), _))),
+                PaletteAction::OpenExplorer => {
+                    matches!(self.overlay, Some((Overlay::Explorer(_), _)))
+                }
+                _ => false,
+            };
+            let label = if action == PaletteAction::History {
+                "Git history".to_string()
+            } else {
+                label
+            };
+            let tooltip = format!("{label} — {detail}");
+            commands = commands.child(
+                h_flex()
+                    .id(("right-native-command", index))
+                    .size(rems(34. / 16.))
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .when(selected, |d| d.bg(ui::raised()).text_color(ui::fg()))
+                    .when(!selected, |d| {
+                        d.text_color(ui::muted()).hover(|d| d.bg(ui::surface_hover()))
+                    })
+                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.overlay.is_some() {
+                            this.close_overlay(window, cx);
+                        }
+                        if !selected {
+                            this.run_palette_action(action.clone(), window, cx);
+                        }
+                    }))
+                    .child(Icon::new(icon)),
+            );
+        }
+        rail = rail.child(commands);
         // These screens keep their existing overlay behavior. Engram is already
         // available as a docked tool above, so it does not need a duplicate.
         type Open = fn(&mut Workspace, &mut Window, &mut Context<Workspace>);
