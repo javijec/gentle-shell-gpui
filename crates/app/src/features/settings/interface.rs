@@ -99,6 +99,17 @@ impl SettingsView {
                         }, cx);
                     }))))
             .child(h_flex().gap_2().pt_2()
+                .child(div().flex_1().text_sm().child("Original screen menu and panel controls"))
+                .child(Button::new("layout-original-controls").ghost().small()
+                    .selected(profile.original_controls)
+                    .label(if profile.original_controls { "Visible" } else { "Hidden" })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.edit_presentation(|p| {
+                            let p = p.current_mut();
+                            p.original_controls = !p.original_controls;
+                        }, cx);
+                    }))))
+            .child(h_flex().gap_2().pt_2()
                 .child(div().flex_1().text_sm().child("Right panel"))
                 .child(Button::new("layout-right-panel").ghost().small()
                     .selected(profile.sidebar_visible)

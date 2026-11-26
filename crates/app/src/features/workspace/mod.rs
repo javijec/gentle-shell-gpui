@@ -747,7 +747,9 @@ impl Workspace {
             .as_ref()
             .map_or(self.layout_profiles.current().dock == LayoutTool::Git, |tree| tree.read(cx).is_git_tab());
         let visible = self.files_sidebar_visible();
+        let original_tabs = self.layout_profiles.current().original_controls;
         view.update(cx, |tree, cx| {
+            tree.set_original_tabs(original_tabs, cx);
             tree.select_sidebar_tool(git, window, cx);
             tree.set_visible(visible, cx);
         });
@@ -818,7 +820,13 @@ impl Workspace {
 
     /// Show the repository's Git history in the shared right sidebar.
     pub fn open_history(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_sidebar_history(cwd, window, cx);
+        if self.layout_profiles.current().original_controls {
+            if let Some(id) = self.new_factory_pane(PaneKind::History, cwd, window, cx) {
+                self.place_preview(id, window, cx);
+            }
+        } else {
+            self.show_sidebar_history(cwd, window, cx);
+        }
     }
 
     /// Open `path` in a new split right of the focused pane (its own tab when

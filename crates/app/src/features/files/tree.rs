@@ -188,6 +188,7 @@ pub struct FileTreeView {
     name: SharedString,
     tab: Tab,
     last_git_tab: Tab,
+    original_tabs: bool,
     /// Loaded listings by folder; folders load when first expanded.
     children: HashMap<PathBuf, Vec<Entry>>,
     expanded: HashSet<PathBuf>,
@@ -252,6 +253,7 @@ impl FileTreeView {
             name,
             tab: Tab::Files,
             last_git_tab: Tab::Changes,
+            original_tabs: true,
             children: HashMap::new(),
             expanded: HashSet::new(),
             selected: None,
@@ -333,6 +335,13 @@ impl FileTreeView {
     }
 
     /// The workspace activity rail selects the existing Files or Git view.
+    pub fn set_original_tabs(&mut self, original: bool, cx: &mut Context<Self>) {
+        if self.original_tabs != original {
+            self.original_tabs = original;
+            cx.notify();
+        }
+    }
+
     pub fn is_git_tab(&self) -> bool {
         self.tab != Tab::Files
     }
@@ -1567,9 +1576,10 @@ impl Render for FileTreeView {
             .px_2()
             .pb_1p5()
             .gap_1()
+            .when(self.original_tabs, |d| d.child(self.tab_button(Tab::Files, IconName::Files, "Files", 0, cx)))
             .child(self.tab_button(Tab::Changes, IconName::Diff, "Changes", change_count, cx))
             .child(self.tab_button(Tab::Branches, IconName::GitBranch, "Branches", 0, cx))
-            .child(
+            .when(!self.original_tabs, |d| d.child(
                 Self::header_button("sidebar-git-history", IconName::GitGraph, "Open Git history")
                     .on_click(cx.listener(|this, _, _, cx| {
                         let repo = this
@@ -1579,7 +1589,7 @@ impl Render for FileTreeView {
                             .map_or_else(|| this.root.clone(), |state| state.toplevel.clone());
                         cx.emit(FileTreeEvent::OpenHistory(repo));
                     })),
-            );
+            ));
         // Finding a file, under the tabs while the tree shows.
         let search = (self.tab == Tab::Files).then(|| {
             h_flex().flex_none().px_2().pb_1p5().child(
@@ -1678,7 +1688,7 @@ impl Render for FileTreeView {
             .size_full()
             .min_h_0()
             .child(header)
-            .when(!files, |d| d.child(tabs))
+            .when(self.original_tabs || !files, |d| d.child(tabs))
             .children(search)
             .child(match self.tab {
                 Tab::Files => self.render_files(cx),

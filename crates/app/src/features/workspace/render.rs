@@ -161,6 +161,8 @@ impl Render for Workspace {
         let left_rail = profile.has(ToolPlacement::Left);
         let right_rail = profile.has(ToolPlacement::Right);
         let title_utilities = profile.title_utilities;
+        let original_controls = profile.original_controls;
+        let profile_has_title = profile.has(ToolPlacement::Title);
         let navigation_visible = self.navigation_visible();
         let window_px_at_100 =
             f32::from(window.viewport_size().width) / (f32::from(window.rem_size()) / 16.);
@@ -344,6 +346,7 @@ impl Render for Workspace {
                                     )
                                     .when(title_utilities, |d| {
                                         d.children(crate::features::music::title_button(&self.music, cx))
+                                            .when(original_controls, |d| d.children(self.render_devices_button(cx)))
                                             .children(self.render_tray(cx))
                                     })
                                     .when(title_utilities, |d| d.child({
@@ -362,7 +365,27 @@ impl Render for Workspace {
                                                 cx,
                                             ))
                                     }))
-                                    .child(self.render_title_shortcuts(cx))
+                                    .when(original_controls, |d| d.child(
+                                        Button::new("toggle-tab-sidebar")
+                                            .ghost()
+                                            .xsmall()
+                                            .icon(Icon::new(
+                                                if vertical_tabs && !self.sidebar_compact {
+                                                    IconName::PanelLeftClose
+                                                } else {
+                                                    IconName::PanelLeftOpen
+                                                },
+                                            ))
+                                            .tooltip(if vertical_tabs && !self.sidebar_compact {
+                                                "Collapse workspace sidebar"
+                                            } else {
+                                                "Expand workspace sidebar"
+                                            })
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.toggle_sidebar_compact(cx)
+                                            })),
+                                    ))
+                                    .when(profile_has_title, |d| d.child(self.render_title_shortcuts(cx)))
                                     .child(
                                         Button::new("open-palette")
                                             .ghost()
@@ -372,7 +395,34 @@ impl Render for Workspace {
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.on_open_palette(&OpenPalette, window, cx)
                                             })),
-                                    ),
+                                    )
+                                    // The screens behind one menu; it's lit while
+                                    // one of them is open.
+                                    .when(original_controls, |d| d.child(self.render_screens_menu(cx)))
+                                    .when(original_controls && has_files_sidebar, |d| {
+                                        d.child(
+                                            Button::new("toggle-sidebar")
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(Icon::new(if self.sidebar_visible {
+                                                    IconName::PanelRightClose
+                                                } else {
+                                                    IconName::PanelRightOpen
+                                                }))
+                                                .tooltip(format!(
+                                                    "{} Files sidebar ({})",
+                                                    if self.sidebar_visible {
+                                                        "Hide"
+                                                    } else {
+                                                        "Show"
+                                                    },
+                                                    ui::shortcut("B")
+                                                ))
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.toggle_sidebar(cx)
+                                                })),
+                                        )
+                                    }),
                             ),
                     ),
             )
@@ -501,3 +551,30 @@ impl Render for Workspace {
     }
 }
 
+
+impl Workspace {
+    /// The title bar's device panel button, while "Use devices" is on.
+    fn render_devices_button(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !crate::features::devices::hub(cx).read(cx).prefs().enabled {
+            return None;
+        }
+        let open = self.devices.read(cx).visible();
+        Some(
+            div()
+                // Clicks here are not title-bar drags.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(
+                    Button::new("title-devices")
+                        .ghost()
+                        .xsmall()
+                        .icon(Icon::new(IconName::Smartphone))
+                        .when(open, |b| b.text_color(ui::petal()))
+                        .tooltip("Devices: simulators and emulators")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.devices.update(cx, |panel, cx| panel.toggle(cx))
+                        })),
+                )
+                .into_any_element(),
+        )
+    }
+}

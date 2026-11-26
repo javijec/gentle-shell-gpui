@@ -82,6 +82,8 @@ pub struct LayoutProfile {
     pub tabs_visible: bool,
     #[serde(default)]
     pub title_utilities: bool,
+    #[serde(default)]
+    pub original_controls: bool,
     pub tab_layout: TabLayout,
     pub workspace_visible: bool,
     pub sidebar_visible: bool,
@@ -97,16 +99,14 @@ impl LayoutProfile {
         Self {
             shortcuts: LayoutTool::ALL.into_iter().map(|tool| ToolShortcut {
                 tool,
-                placement: if expanded { ToolPlacement::Right }
-                    else if matches!(tool, LayoutTool::Files | LayoutTool::Git | LayoutTool::History | LayoutTool::Configuration) {
-                        ToolPlacement::Title
-                    } else { ToolPlacement::Hidden },
+                placement: if expanded { ToolPlacement::Right } else { ToolPlacement::Hidden },
             }).collect(),
-            tabs_visible: expanded,
-            title_utilities: expanded,
+            tabs_visible: true,
+            title_utilities: true,
+            original_controls: !expanded,
             tab_layout: if expanded { TabLayout::Vertical } else { TabLayout::Horizontal },
             workspace_visible: expanded,
-            sidebar_visible: expanded,
+            sidebar_visible: true,
             dock: LayoutTool::Files,
             tabs_width: width,
             files_width: width,
@@ -185,7 +185,7 @@ impl LayoutProfiles {
         }
         let mut profiles = Self::default();
         if saved.version != 0 || !saved.workspaces.is_empty() {
-            profiles.active = LayoutPreset::Expanded;
+            profiles.active = LayoutPreset::Minimal;
             let p = profiles.current_mut();
             p.tab_layout = saved.tab_layout;
             p.workspace_visible = saved.tab_layout == TabLayout::Vertical && !saved.sidebar_compact;
@@ -203,12 +203,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn minimal_has_only_essential_title_icons_and_no_panels() {
+    fn minimal_matches_original_window_defaults() {
         let p = LayoutProfiles::default();
         let current = p.current();
-        assert!(!current.tabs_visible && !current.workspace_visible && !current.sidebar_visible);
-        let title: Vec<_> = current.shortcuts.iter().filter(|s| s.placement == ToolPlacement::Title).map(|s| s.tool).collect();
-        assert_eq!(title, [LayoutTool::Files, LayoutTool::Git, LayoutTool::History, LayoutTool::Configuration]);
+        assert!(current.tabs_visible && current.title_utilities && current.original_controls);
+        assert_eq!(current.tab_layout, TabLayout::Horizontal);
+        assert!(!current.workspace_visible);
+        assert_eq!(current.sidebar_visible, SavedState::default().sidebar);
+        assert!(current.shortcuts.iter().all(|s| s.placement == ToolPlacement::Hidden));
+        assert!(!p.expanded.original_controls);
     }
 
     #[test]
@@ -245,7 +248,7 @@ mod tests {
             sidebar: false, files_sidebar_width: 420., ..SavedState::default()
         };
         let p = LayoutProfiles::from_saved(&saved);
-        assert_eq!(p.active, LayoutPreset::Expanded);
+        assert_eq!(p.active, LayoutPreset::Minimal);
         assert_eq!(p.current().tab_layout, TabLayout::Vertical);
         assert!(!p.current().workspace_visible && !p.current().sidebar_visible);
         assert_eq!(p.current().files_width, 420.);
