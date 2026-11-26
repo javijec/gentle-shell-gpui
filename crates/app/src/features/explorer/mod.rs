@@ -505,7 +505,6 @@ impl Render for ExplorerView {
             .occlude()
             .capture_key_down(cx.listener(Self::on_key_down))
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ExplorerEvent::Close)))
-            .child(ui::scrim("explorer-scrim"))
             .child(ui::pop_in(
                 "explorer-in",
                 div().flex().max_h_full().child(panel),

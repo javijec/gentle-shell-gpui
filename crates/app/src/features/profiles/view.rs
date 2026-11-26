@@ -108,7 +108,7 @@ impl Render for ProfilesView {
                 .into_any_element()
         };
         let ready = !self.loading && self.error.is_none();
-        let (backdrop, panel) = ui::screen(None);
+        let (backdrop, panel) = ui::workspace_screen(None);
         backdrop.occlude().child(ui::pop_in(
             "profiles-screen",
             panel

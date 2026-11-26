@@ -31,7 +31,7 @@ impl Render for SettingsView {
                 .child("Reading your Gentle Shell configuration…")
                 .into_any_element(),
         };
-        let (backdrop, panel) = ui::screen(Some(960.));
+        let (backdrop, panel) = ui::workspace_screen(Some(960.));
         backdrop.occlude().child(ui::pop_in(
             "settings-screen",
             panel

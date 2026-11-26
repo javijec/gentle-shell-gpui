@@ -164,6 +164,10 @@ impl Render for Workspace {
         let original_controls = profile.original_controls;
         let profile_has_title = profile.has(ToolPlacement::Title);
         let navigation_visible = self.navigation_visible();
+        // First-run screens keep their original full-window presentation.
+        let workspace_modal = self.overlay.as_ref().is_some_and(|(overlay, _)| {
+            !matches!(overlay, Overlay::Onboarding(_) | Overlay::Welcome(_))
+        });
         let window_px_at_100 =
             f32::from(window.viewport_size().width) / (f32::from(window.rem_size()) / 16.);
         let now = std::time::Instant::now();
@@ -438,7 +442,13 @@ impl Render for Workspace {
                             this.resize_sidebar(event, window, cx);
                         },
                     ))
-                    .when(left_rail, |row| row.child(self.render_activity_bar(ToolPlacement::Left, cx)))
+                    .when(left_rail, |row| {
+                        if workspace_modal {
+                            row.child(div().w(rems(right_sidebar::ACTIVITY_BAR_WIDTH / 16.)).flex_none())
+                        } else {
+                            row.child(self.render_activity_bar(ToolPlacement::Left, cx))
+                        }
+                    })
                     // The vertical tab navigator remains independent of the Files panel.
                     .when(tabs_fraction > 0., |row| {
                         row.child(
@@ -500,7 +510,11 @@ impl Render for Workspace {
                         )
                     })
                     .when(right_rail, |row| {
-                        row.child(self.render_activity_bar(ToolPlacement::Right, cx))
+                        if workspace_modal {
+                            row.child(div().w(rems(right_sidebar::ACTIVITY_BAR_WIDTH / 16.)).flex_none())
+                        } else {
+                            row.child(self.render_activity_bar(ToolPlacement::Right, cx))
+                        }
                     }),
             )
             .children(floating_stages)
@@ -508,6 +522,20 @@ impl Render for Workspace {
             .children(self.render_context_menu(cx))
             .when(devices_floating, |root| root.child(self.devices.clone()))
             .children(browser_dock_drag)
+            // Dim the entire workspace body once. Insetting the scrim along
+            // with the modal creates a visible rectangular edge in the gaps
+            // beside rounded panels. The rails are painted above this layer.
+            .when(workspace_modal, |root| {
+                root.child(
+                    div()
+                        .absolute()
+                        .top(rems(TITLE_BAR_HEIGHT / 16.))
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .child(ui::scrim("workspace-modal-scrim")),
+                )
+            })
             .children(self.overlay.as_ref().map(|(overlay, _)| {
                 let (view, full_window) = match overlay {
                     Overlay::Providers(view) => (view.clone().into_any_element(), false),
@@ -527,8 +555,8 @@ impl Render for Workspace {
                 if full_window {
                     return view;
                 }
-                // Leave the activity rail clickable while a screen is open.
-                // First-run screens above still cover the entire window.
+                // Only modal content and its hit-testing area are inset.
+                // The full-width scrim is painted separately above the body.
                 div()
                     .absolute()
                     .top(rems(TITLE_BAR_HEIGHT / 16.))
@@ -542,6 +570,30 @@ impl Render for Workspace {
                     .child(view)
                     .into_any_element()
             }))
+            // Keep the same rail bounds as the row, above the continuous
+            // scrim. No duplicated rail is mounted in the row in this state.
+            .when(workspace_modal && left_rail, |root| {
+                root.child(
+                    div()
+                        .absolute()
+                        .top(rems(TITLE_BAR_HEIGHT / 16.))
+                        .bottom(rems(6. / 16.))
+                        .left(rems(6. / 16.))
+                        .w(rems(right_sidebar::ACTIVITY_BAR_WIDTH / 16.))
+                        .child(self.render_activity_bar(ToolPlacement::Left, cx)),
+                )
+            })
+            .when(workspace_modal && right_rail, |root| {
+                root.child(
+                    div()
+                        .absolute()
+                        .top(rems(TITLE_BAR_HEIGHT / 16.))
+                        .bottom(rems(6. / 16.))
+                        .right(rems(6. / 16.))
+                        .w(rems(right_sidebar::ACTIVITY_BAR_WIDTH / 16.))
+                        .child(self.render_activity_bar(ToolPlacement::Right, cx)),
+                )
+            })
             .when_some(self.surge, |root, (run, _, level)| {
                 root.child(crate::shared::surge::overlay(run, level))
             })

@@ -113,7 +113,7 @@ impl Render for ProvidersView {
             self.render_list(cx).into_any_element()
         };
         let flow_finished = self.flow.as_ref().map(|f| f.finished.is_some());
-        let (backdrop, panel) = ui::screen(Some(640.));
+        let (backdrop, panel) = ui::workspace_screen(Some(640.));
         backdrop.occlude().child(ui::pop_in(
             "providers-screen",
             panel

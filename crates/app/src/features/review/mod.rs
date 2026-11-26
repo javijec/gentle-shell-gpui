@@ -215,7 +215,7 @@ impl Render for ReviewView {
                             .child(self.changes.clone()),
                     ),
             );
-        let (backdrop, panel) = ui::screen(None);
+        let (backdrop, panel) = ui::workspace_screen(None);
         // Wider than the other screens: a diff needs the room more than a
         // form does, side by side above all.
         let panel = panel.max_w(rems(1800. / 16.));

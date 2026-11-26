@@ -368,7 +368,7 @@ impl Render for SessionsView {
                 .child(key)
                 .child(label)
         };
-        let (backdrop, panel) = ui::screen(Some(760.));
+        let (backdrop, panel) = ui::workspace_screen(Some(760.));
         backdrop.occlude().child(ui::pop_in(
             "sessions-screen",
             panel

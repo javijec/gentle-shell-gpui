@@ -89,7 +89,7 @@ impl Render for UsageView {
                 .label(label)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_tab(tab, cx)))
         };
-        let (backdrop, panel) = ui::screen(Some(760.));
+        let (backdrop, panel) = ui::workspace_screen(Some(760.));
         backdrop.occlude().child(ui::pop_in(
             "usage-screen",
             panel

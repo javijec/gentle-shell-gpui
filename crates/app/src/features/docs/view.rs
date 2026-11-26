@@ -414,7 +414,7 @@ impl Render for DocsView {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.root.display().to_string());
         let loading = self.docs.is_none();
-        let (backdrop, panel) = ui::screen(Some(760.));
+        let (backdrop, panel) = ui::workspace_screen(Some(760.));
         backdrop.occlude().child(ui::pop_in(
             "docs-screen",
             panel

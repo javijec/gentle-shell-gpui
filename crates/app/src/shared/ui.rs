@@ -736,14 +736,21 @@ pub fn section_label(text: impl Into<SharedString>) -> Div {
 /// centered glass panel with a header (icon, title, subtitle, trailing).
 /// `width` is in px at 100 % and grows with the interface size.
 pub fn screen(width: Option<f32>) -> (Div, Div) {
+    let (backdrop, panel) = workspace_screen(width);
+    (backdrop.child(scrim("screen-scrim")), panel)
+}
+
+/// Workspace modals share one full-width scrim painted by the workspace.
+/// Their content is inset independently to keep the activity rails usable.
+/// Standalone and first-run screens use `screen` instead.
+pub fn workspace_screen(width: Option<f32>) -> (Div, Div) {
     let backdrop = div()
         .absolute()
         .inset_0()
         .flex()
         .items_center()
         .justify_center()
-        .p(rems(32. / 16.))
-        .child(scrim("screen-scrim"));
+        .p(rems(32. / 16.));
     let panel = div()
         .flex()
         .flex_col()

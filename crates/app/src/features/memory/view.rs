@@ -207,7 +207,7 @@ impl Render for MemoryView {
         };
 
         let all = self.all_projects;
-        let (backdrop, panel) = ui::screen(None);
+        let (backdrop, panel) = ui::workspace_screen(None);
         let panel = if self.docked {
             v_flex().size_full().min_h_0()
         } else {
