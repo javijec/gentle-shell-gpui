@@ -56,6 +56,8 @@ pub enum SessionEvent {
     /// [`SessionView::cwd`] or [`SessionView::model_choices`]. Streaming
     /// output does not emit it, so the window need not redraw per token.
     ChromeChanged,
+    /// The session's Agents window was opened or closed.
+    AgentsPanelChanged,
     /// A Gentle Shell command whose UI is terminal-only was run (typed or
     /// from the palette): open the app's own screen for it instead.
     OpenScreen(gentle_core::commands::Screen),
@@ -524,6 +526,18 @@ impl SessionView {
                 )
             })
             .collect()
+    }
+
+    /// Whether the session's Agents window is open.
+    pub fn agents_panel_open(&self) -> bool {
+        self.agents_panel.open
+    }
+
+    /// Close the Agents window without stopping the session or its helpers.
+    pub fn close_agents_panel(&mut self, cx: &mut Context<Self>) {
+        if self.agents_panel.open {
+            self.close_agents(cx);
+        }
     }
 
     /// Opens the Agents window on `tab`.

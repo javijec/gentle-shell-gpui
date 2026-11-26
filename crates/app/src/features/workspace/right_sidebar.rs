@@ -123,8 +123,75 @@ impl Workspace {
         }
     }
 
+    /// Tower has its own tab, unlike the docked tools and overlay screens.
+    fn shown_tower(&self) -> Option<PaneId> {
+        self.tab()?.leaves().into_iter().find(|id| {
+            self.panes.get(id).is_some_and(|pane| pane.item.kind == PaneKind::Tower)
+        })
+    }
+
+    fn agents_window_open(&self, cx: &App) -> bool {
+        self.active_session().is_some_and(|session| session.read(cx).agents_panel_open())
+    }
+
+    fn toggle_rail_command(
+        &mut self,
+        action: PaletteAction,
+        selected: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.overlay.is_some() {
+            self.close_overlay(window, cx);
+        }
+        match action {
+            PaletteAction::Devices => self.devices.update(cx, |panel, cx| panel.toggle(cx)),
+            PaletteAction::Agents if self.agents_window_open(cx) => {
+                if let Some(session) = self.active_session() {
+                    session.update(cx, |session, cx| session.close_agents_panel(cx));
+                }
+            }
+            PaletteAction::Screen(Screen::Tower) if self.shown_tower().is_some() => {
+                if let Some(id) = self.shown_tower() {
+                    self.close_pane(id, window, cx);
+                }
+            }
+            _ if !selected => self.run_palette_action(action, window, cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    fn rail_has_open_panel(&self, cx: &App) -> bool {
+        self.sidebar_visible
+            || self.overlay.is_some()
+            || self.devices.read(cx).visible()
+            || self.agents_window_open(cx)
+    }
+
+    fn toggle_rail_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.rail_has_open_panel(cx) {
+            self.toggle_sidebar(cx);
+            return;
+        }
+        if self.overlay.is_some() {
+            self.close_overlay(window, cx);
+        }
+        if self.devices.read(cx).visible() {
+            self.devices.update(cx, |panel, cx| panel.hide(cx));
+        }
+        if let Some(session) = self.active_session() {
+            session.update(cx, |session, cx| session.close_agents_panel(cx));
+        }
+        if self.sidebar_visible {
+            self.toggle_sidebar(cx);
+        }
+        cx.notify();
+    }
+
     pub(super) fn render_right_activity_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let active = self.active_right_tool(cx);
+        let panel_open = self.rail_has_open_panel(cx);
         let mut rail = v_flex()
             .w(rems(ACTIVITY_BAR_WIDTH / 16.))
             .h_full()
@@ -148,13 +215,15 @@ impl Workspace {
                     .tooltip({
                         let label = format!(
                             "{} tools sidebar ({})",
-                            if self.sidebar_visible { "Hide" } else { "Show" },
+                            if panel_open { "Hide" } else { "Show" },
                             ui::shortcut("B")
                         );
                         move |window, cx| Tooltip::new(label.clone()).build(window, cx)
                     })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx)))
-                    .child(Icon::new(if self.sidebar_visible {
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_rail_panels(window, cx);
+                    }))
+                    .child(Icon::new(if panel_open {
                         IconName::PanelRightClose
                     } else {
                         IconName::PanelRightOpen
@@ -185,6 +254,9 @@ impl Workspace {
                     })
                     .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
                     .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.overlay.is_some() {
+                            this.close_overlay(window, cx);
+                        }
                         this.select_right_tool(tool, window, cx);
                     }))
                     .child(Icon::new(icon)),
@@ -212,6 +284,8 @@ impl Workspace {
             }
             let selected = match &action {
                 PaletteAction::Devices => self.devices.read(cx).visible(),
+                PaletteAction::Agents => self.agents_window_open(cx),
+                PaletteAction::Screen(Screen::Tower) => self.shown_tower().is_some(),
                 PaletteAction::Docs => matches!(self.overlay, Some((Overlay::Docs(_), _))),
                 PaletteAction::Usage => matches!(self.overlay, Some((Overlay::Usage(_), _))),
                 _ => false,
@@ -232,14 +306,7 @@ impl Workspace {
                     })
                     .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.overlay.is_some() {
-                            this.close_overlay(window, cx);
-                        }
-                        if action == PaletteAction::Devices {
-                            this.devices.update(cx, |panel, cx| panel.toggle(cx));
-                        } else if !selected {
-                            this.run_palette_action(action.clone(), window, cx);
-                        }
+                        this.toggle_rail_command(action.clone(), selected, window, cx);
                     }))
                     .child(Icon::new(icon)),
             );
@@ -305,9 +372,10 @@ impl Workspace {
                     })
                     .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        if selected {
+                        if this.overlay.is_some() {
                             this.close_overlay(window, cx);
-                        } else {
+                        }
+                        if !selected {
                             open(this, window, cx);
                         }
                     }))
