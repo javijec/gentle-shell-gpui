@@ -378,9 +378,6 @@ impl Render for Workspace {
                                                 this.on_open_palette(&OpenPalette, window, cx)
                                             })),
                                     )
-                                    // The screens behind one menu; it's lit while
-                                    // one of them is open.
-                                    .child(self.render_screens_menu(cx))
                                     .when(has_files_sidebar, |d| {
                                         d.child(
                                             Button::new("toggle-sidebar")

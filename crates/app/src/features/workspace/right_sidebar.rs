@@ -122,6 +122,7 @@ impl Workspace {
                     .child(Icon::new(icon)),
             );
         }
-        rail
+        rail.child(div().flex_1())
+            .child(self.render_screens_menu(cx))
     }
 }
