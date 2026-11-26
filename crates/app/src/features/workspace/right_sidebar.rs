@@ -375,7 +375,7 @@ impl Workspace {
         tool: LayoutTool,
         placement: ToolPlacement,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         let selected = self.shortcut_selected(tool, cx);
         let size = if placement == ToolPlacement::Title { 28. } else { 34. };
         h_flex()
@@ -403,6 +403,7 @@ impl Workspace {
                 this.move_shortcut(drag.0, placement, Some(tool), cx);
             }))
             .child(Icon::new(tool.icon()))
+            .into_any_element()
     }
 
     pub(super) fn render_title_shortcuts(&self, cx: &mut Context<Self>) -> impl IntoElement {
