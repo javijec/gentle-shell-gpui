@@ -96,7 +96,12 @@ impl Workspace {
             return;
         }
         // The row's horizontal padding is 6 px at 100% interface scale.
-        let pointer = f32::from(distance) / scale - 6.;
+        let rail = if matches!(drag.side, Side::Files) {
+            right_sidebar::ACTIVITY_BAR_WIDTH + 6.
+        } else {
+            0.
+        };
+        let pointer = f32::from(distance) / scale - 6. - rail;
         let window_width = f32::from(window.viewport_size().width) / scale;
         let side = drag.side;
         let action = drag.gesture.borrow_mut().update(
@@ -158,7 +163,7 @@ impl Render for Workspace {
         let (tabs_width, tabs_fraction) = self.sidebar_geometry(Side::Tabs, window_px_at_100, now);
         let (files_width, files_fraction) =
             self.sidebar_geometry(Side::Files, window_px_at_100, now);
-        let files_sidebar = self.sidebar.clone().filter(|_| files_fraction > 0.);
+        let files_sidebar = self.right_sidebar_view().filter(|_| files_fraction > 0.);
         // Native web views would cover a screen or a dialog opened over
         // them, and swallow the pointer while a pane is dragged over them;
         // device cards stop capturing while covered.
@@ -387,7 +392,7 @@ impl Render for Workspace {
                                                     IconName::PanelRightOpen
                                                 }))
                                                 .tooltip(format!(
-                                                    "{} Files sidebar ({})",
+                                                    "{} tools sidebar ({})",
                                                     if self.sidebar_visible {
                                                         "Hide"
                                                     } else {
@@ -455,7 +460,7 @@ impl Render for Workspace {
                     )
                     .children(browser_dock)
                     .when(devices_docked, |row| row.child(self.devices.clone()))
-                    // Ctrl/Cmd+B toggles only the right Files/Changes/Branches sidebar.
+                    // Ctrl/Cmd+B toggles the tool content; the rail stays visible.
                     .when_some(files_sidebar, |row, view| {
                         row.child(
                             div()
@@ -474,6 +479,9 @@ impl Render for Workspace {
                                     column.child(self.sidebar_handle(Side::Files, cx))
                                 }),
                         )
+                    })
+                    .when(has_files_sidebar, |row| {
+                        row.child(self.render_right_activity_bar(cx))
                     }),
             )
             .children(floating_stages)

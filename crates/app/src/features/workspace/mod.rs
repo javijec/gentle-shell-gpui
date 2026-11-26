@@ -21,6 +21,7 @@ use gpui_kit::*;
 use crate::features::canvas::{CanvasEvent, CanvasView};
 use crate::features::docs::{DocsEvent, DocsView};
 use crate::features::explorer::{ExplorerEvent, ExplorerView};
+use crate::features::files::FileTreeView;
 use crate::features::memory::{MemoryEvent, MemoryView};
 use crate::features::notices::{self, Notices};
 use crate::features::onboarding::{OnboardingEvent, OnboardingView, Probe};
@@ -56,6 +57,7 @@ mod overlays;
 mod panes;
 mod persistence;
 mod render;
+mod right_sidebar;
 mod sidebar_motion;
 mod sidebars;
 mod spaces;
@@ -416,7 +418,9 @@ pub struct Workspace {
     /// Agent panes last told their web views may show (see
     /// `sync_web_views`).
     web_shown: std::collections::HashSet<PaneId>,
-    sidebar: Option<AnyView>,
+    sidebar: Option<Entity<FileTreeView>>,
+    sidebar_memory_active: bool,
+    sidebar_memory: Option<(Entity<MemoryView>, Subscription)>,
     sidebar_visible: bool,
     tabs_sidebar_motion: sidebar_motion::SidebarMotion,
     files_sidebar_motion: sidebar_motion::SidebarMotion,
@@ -571,6 +575,8 @@ impl Workspace {
             overlay: None,
             web_shown: Default::default(),
             sidebar: None,
+            sidebar_memory_active: false,
+            sidebar_memory: None,
             sidebar_visible: saved.sidebar,
             tabs_sidebar_motion: Default::default(),
             files_sidebar_motion: Default::default(),
@@ -720,9 +726,27 @@ impl Workspace {
         });
     }
 
-    /// Put `view` in the right Files sidebar (Cmd/Ctrl+B toggles it).
-    pub fn set_sidebar(&mut self, view: AnyView, cx: &mut Context<Self>) {
+    /// Mount the existing file/Git view for the active workspace.
+    pub fn set_sidebar(
+        &mut self,
+        view: Entity<FileTreeView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let git = self
+            .sidebar
+            .as_ref()
+            .is_some_and(|tree| tree.read(cx).is_git_tab());
+        let visible = self.files_sidebar_visible();
+        view.update(cx, |tree, cx| {
+            tree.select_sidebar_tool(git, window, cx);
+            tree.set_visible(visible, cx);
+        });
         self.sidebar = Some(view);
+        self.sidebar_memory = None;
+        if self.sidebar_memory_active {
+            self.ensure_sidebar_memory(window, cx);
+        }
         cx.notify();
     }
 

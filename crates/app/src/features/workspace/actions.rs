@@ -207,10 +207,9 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The right Files sidebar polls only while it is visible, regardless
-    /// of whether tabs are arranged horizontally or vertically.
+    /// Files and Git only poll while their shared view is visible.
     pub fn files_sidebar_visible(&self) -> bool {
-        self.sidebar_visible
+        self.sidebar_visible && !self.sidebar_memory_active
     }
 
     pub(super) fn on_open_providers(

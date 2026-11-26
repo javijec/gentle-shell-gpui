@@ -128,16 +128,23 @@ impl Render for MemoryView {
                 )
                 .into_any_element()
         } else {
-            h_flex()
+            let layout = if self.docked { v_flex() } else { h_flex() };
+            layout
                 .size_full()
+                .min_h_0()
                 .items_start()
                 .child(
                     div()
                         .id("memory-list")
-                        .w(relative(0.4))
-                        .min_w(rems(220. / 16.))
-                        .max_w(rems(340. / 16.))
-                        .h_full()
+                        .when(self.docked, |d| {
+                            d.w_full().h(relative(0.4)).min_h_0()
+                        })
+                        .when(!self.docked, |d| {
+                            d.w(relative(0.4))
+                                .min_w(rems(220. / 16.))
+                                .max_w(rems(340. / 16.))
+                                .h_full()
+                        })
                         .flex_shrink_0()
                         .overflow_y_scroll()
                         .track_scroll(&self.list_scroll)
@@ -152,11 +159,11 @@ impl Render for MemoryView {
                         .id("memory-detail")
                         .flex_1()
                         .min_w_0()
-                        .h_full()
+                        .min_h_0()
+                        .when(self.docked, |d| d.w_full().p_3().border_t_1())
+                        .when(!self.docked, |d| d.h_full().p_5().border_l_1())
                         .overflow_y_scroll()
-                        .p_5()
                         .gap_3()
-                        .border_l_1()
                         .border_color(ui::border())
                         .when_some(selected, |d, o| {
                             d.child(
@@ -201,81 +208,91 @@ impl Render for MemoryView {
 
         let all = self.all_projects;
         let (backdrop, panel) = ui::screen(None);
-        backdrop.occlude().child(ui::pop_in(
-            "memory-screen",
-            panel
-                .max_w(rems(1100. / 16.))
-                .child(
-                    ui::screen_header()
-                        .child(Icon::new(IconName::Brain).small().text_color(ui::muted()))
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_base()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(ui::fg())
-                                .child("Memory"),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_xs()
-                                .text_color(ui::muted())
-                                .child(match (&self.project, all) {
-                                    (_, true) => "Engram · all projects".to_string(),
-                                    (Some(p), false) => format!("Engram · {p}"),
-                                    (None, false) => "Engram".to_string(),
-                                }),
-                        )
-                        .when(self.loading, |d| {
-                            d.child(Spinner::new().small().color(ui::accent()))
-                        })
-                        .child(
-                            Button::new("memory-close")
-                                .ghost()
-                                .xsmall()
-                                .icon(Icon::new(IconName::X))
-                                .on_click(cx.listener(|_, _, _, cx| cx.emit(MemoryEvent::Close))),
-                        ),
-                )
-                .child(
-                    h_flex()
-                        .px_4()
-                        .py_3()
-                        .gap_2()
-                        .border_b_1()
-                        .border_color(ui::border())
-                        .child(
-                            ui::field()
-                                .flex_1()
-                                .min_w_0()
-                                .child(Icon::new(IconName::Search).small().text_color(ui::faint()))
-                                .child(Input::new(&self.query).appearance(false).small()),
-                        )
-                        .child(ui::segmented(
-                            "memory-scope",
-                            &["This project", "All projects"],
-                            Some(usize::from(all)),
-                            cx.listener(|this, index: &usize, _, cx| {
-                                let all = *index == 1;
-                                if this.all_projects != all {
-                                    this.all_projects = all;
-                                    this.reload(cx);
-                                }
+        let panel = if self.docked {
+            v_flex().size_full().min_h_0()
+        } else {
+            panel.max_w(rems(1100. / 16.))
+        };
+        let panel = panel
+            .child(
+                ui::screen_header()
+                    .child(Icon::new(IconName::Brain).small().text_color(ui::muted()))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(ui::fg())
+                            .child("Memory"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(ui::muted())
+                            .child(match (&self.project, all) {
+                                (_, true) => "Engram · all projects".to_string(),
+                                (Some(p), false) => format!("Engram · {p}"),
+                                (None, false) => "Engram".to_string(),
                             }),
-                        ))
-                        .child(
-                            Button::new("memory-refresh")
-                                .ghost()
-                                .small()
-                                .icon(Icon::new(IconName::RefreshCw))
-                                .tooltip("Reload")
-                                .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
-                        ),
-                )
-                .child(div().flex_1().min_h_0().child(body)),
-        ))
+                    )
+                    .when(self.loading, |d| {
+                        d.child(Spinner::new().small().color(ui::accent()))
+                    })
+                    .child(
+                        Button::new("memory-close")
+                            .ghost()
+                            .xsmall()
+                            .icon(Icon::new(IconName::X))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(MemoryEvent::Close))),
+                    ),
+            )
+            .child(
+                (if self.docked { v_flex() } else { h_flex() })
+                    .flex_none()
+                    .px_4()
+                    .py_3()
+                    .gap_2()
+                    .border_b_1()
+                    .border_color(ui::border())
+                    .child(
+                        ui::field()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Icon::new(IconName::Search).small().text_color(ui::faint()))
+                            .child(Input::new(&self.query).appearance(false).small()),
+                    )
+                    .child(ui::segmented(
+                        "memory-scope",
+                        &["This project", "All projects"],
+                        Some(usize::from(all)),
+                        cx.listener(|this, index: &usize, _, cx| {
+                            let all = *index == 1;
+                            if this.all_projects != all {
+                                this.all_projects = all;
+                                this.reload(cx);
+                            }
+                        }),
+                    ))
+                    .child(
+                        Button::new("memory-refresh")
+                            .ghost()
+                            .small()
+                            .icon(Icon::new(IconName::RefreshCw))
+                            .tooltip("Reload")
+                            .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().child(body));
+        if self.docked {
+            panel.into_any_element()
+        } else {
+            backdrop
+                .occlude()
+                .child(ui::pop_in("memory-screen", panel))
+                .into_any_element()
+        }
     }
 }
