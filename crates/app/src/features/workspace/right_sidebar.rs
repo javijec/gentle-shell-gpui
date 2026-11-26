@@ -122,9 +122,8 @@ impl Workspace {
                     .child(Icon::new(icon)),
             );
         }
-        // Native commands share the same actions as the command palette.
-        // Scroll only this middle group, keeping the main tools and the
-        // existing bottom shortcuts visible even in a short window.
+        // Native screens share the command palette's actions. Keep them
+        // above the bottom administration shortcuts, scrolling if needed.
         let mut commands = v_flex()
             .id("right-native-commands")
             .flex_1()
@@ -132,7 +131,8 @@ impl Workspace {
             .w_full()
             .items_center()
             .gap_1()
-            .overflow_y_scroll();
+            .overflow_y_scroll()
+            .child(div().flex_1().min_h_0());
         for (index, (icon, label, detail, action)) in
             crate::features::palette::sidebar_commands(self.tab_layout)
                 .into_iter()
@@ -141,9 +141,6 @@ impl Workspace {
             let selected = match &action {
                 PaletteAction::Docs => matches!(self.overlay, Some((Overlay::Docs(_), _))),
                 PaletteAction::Usage => matches!(self.overlay, Some((Overlay::Usage(_), _))),
-                PaletteAction::OpenExplorer => {
-                    matches!(self.overlay, Some((Overlay::Explorer(_), _)))
-                }
                 _ => false,
             };
             let label = if action == PaletteAction::History {

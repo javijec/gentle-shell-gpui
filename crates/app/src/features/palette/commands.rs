@@ -307,26 +307,23 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_shortcuts_include_native_commands_except_setup_and_existing_tools() {
+    fn sidebar_shortcuts_only_include_additional_screens() {
         for layout in [TabLayout::Horizontal, TabLayout::Vertical] {
-            let shortcuts = super::super::sidebar_commands(layout);
-            let actions: Vec<_> = shortcuts
+            let actions: Vec<_> = super::super::sidebar_commands(layout)
                 .into_iter()
                 .map(|(_, _, _, action)| action)
                 .collect();
-            for row in screen_rows(layout) {
-                let excluded = matches!(
-                    &row.action,
-                    PaletteAction::Setup
-                        | PaletteAction::Welcome
-                        | PaletteAction::Memory
-                        | PaletteAction::Profiles
-                        | PaletteAction::Sessions
-                        | PaletteAction::Providers
-                        | PaletteAction::Settings
-                );
-                assert_eq!(actions.contains(&row.action), !excluded, "{}", row.title);
-            }
+            assert_eq!(
+                actions,
+                [
+                    PaletteAction::Agents,
+                    PaletteAction::Docs,
+                    PaletteAction::History,
+                    PaletteAction::Devices,
+                    PaletteAction::Usage,
+                    PaletteAction::Screen(Screen::Tower),
+                ]
+            );
         }
     }
 
