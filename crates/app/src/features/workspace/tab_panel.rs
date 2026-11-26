@@ -31,6 +31,11 @@ impl Workspace {
         }
         self.cancel_workspace_rename_state(cx);
         let was_open = self.navigation_visible();
+        // The existing command to switch to vertical tabs opens the full
+        // navigator. Configuration can explicitly request compact tabs.
+        if layout == TabLayout::Vertical && self.tab_layout == TabLayout::Horizontal {
+            self.sidebar_compact = false;
+        }
         let profile = self.layout_profiles.current_mut();
         profile.tabs_visible = true;
         profile.tab_layout = layout;

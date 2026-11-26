@@ -122,6 +122,11 @@ impl Workspace {
             PaletteAction::OpenFiles => self.select_right_tool(LayoutTool::Files, window, cx),
             PaletteAction::OpenGit => self.select_right_tool(LayoutTool::Git, window, cx),
             PaletteAction::ToggleNavigation => self.show_navigation(cx),
+            PaletteAction::SetLayoutPreset(preset) => {
+                let mut profiles = self.presentation_snapshot(cx);
+                profiles.active = preset;
+                self.apply_presentation(profiles, window, cx);
+            }
             PaletteAction::SetTabLayout(layout) => self.set_tab_layout(layout, cx),
             PaletteAction::Agents => {
                 if let Some(session) = tab {

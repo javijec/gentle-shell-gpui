@@ -166,7 +166,8 @@ impl LayoutProfiles {
         match self.active { LayoutPreset::Minimal => &mut self.minimal, LayoutPreset::Expanded => &mut self.expanded }
     }
     pub fn reset(&mut self) {
-        *self.current_mut() = LayoutProfile::preset(self.active);
+        let preset = self.active;
+        *self.current_mut() = LayoutProfile::preset(preset);
     }
     pub fn normalize(&mut self) {
         self.minimal.normalize(LayoutPreset::Minimal);

@@ -12,7 +12,7 @@ use gpui_kit::*;
 use gentle_core::commands::Screen;
 use gentle_core::fuzzy::{FileEntry, Needle};
 
-use crate::features::workspaces::TabLayout;
+use crate::features::workspaces::{LayoutPreset, TabLayout};
 
 mod commands;
 mod keyboard;
@@ -62,6 +62,7 @@ pub enum PaletteAction {
     OpenFiles,
     OpenGit,
     ToggleNavigation,
+    SetLayoutPreset(LayoutPreset),
     SetTabLayout(TabLayout),
     /// Send `/name` as a prompt in the active agent pane.
     Command(String),

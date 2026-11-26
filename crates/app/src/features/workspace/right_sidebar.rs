@@ -78,6 +78,8 @@ impl Workspace {
         self.ensure_sidebar_history(cwd, window, cx);
         self.sidebar_history_active = true;
         self.sidebar_memory_active = false;
+        self.layout_profiles.current_mut().dock = LayoutTool::History;
+        self.schedule_save(cx);
         if self.sidebar_visible {
             cx.emit(WorkspaceEvent::FilesVisibilityChanged(false));
             cx.notify();
@@ -103,6 +105,8 @@ impl Workspace {
         }
         self.sidebar_history_active = false;
         self.sidebar_memory_active = tool == LayoutTool::Engram;
+        self.layout_profiles.current_mut().dock = tool;
+        self.schedule_save(cx);
         if self.sidebar_memory_active {
             self.ensure_sidebar_memory(window, cx);
         } else if let Some(tree) = self.sidebar.clone() {
@@ -246,7 +250,7 @@ impl Workspace {
     pub(super) fn show_navigation(&mut self, cx: &mut Context<Self>) {
         let was_open = self.navigation_visible();
         let p = self.layout_profiles.current_mut();
-        p.tabs_visible = !p.tabs_visible;
+        p.tabs_visible = !(p.tabs_visible || p.workspace_visible);
         p.workspace_visible = p.tabs_visible && self.tab_layout == TabLayout::Vertical;
         self.sidebar_compact = !p.workspace_visible;
         if was_open != self.navigation_visible() {
@@ -314,6 +318,13 @@ impl Workspace {
         p.place(tool, placement);
         if let Some(target) = before {
             p.move_before(tool, target);
+        }
+        // A context-menu edit while Configuration is open must not be
+        // overwritten by the settings view's next edit.
+        if let Some((Overlay::Settings(view), _)) = &self.overlay {
+            let view = view.clone();
+            let profiles = self.presentation_snapshot(cx);
+            view.update(cx, |view, cx| view.sync_presentation(profiles, cx));
         }
         self.schedule_save(cx);
         cx.notify();

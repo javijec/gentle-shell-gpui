@@ -22,6 +22,11 @@ impl Render for DragLabel {
 }
 
 impl SettingsView {
+    pub(crate) fn sync_presentation(&mut self, profiles: LayoutProfiles, cx: &mut Context<Self>) {
+        self.layout_profiles = profiles;
+        cx.notify();
+    }
+
     fn edit_presentation(
         &mut self,
         edit: impl FnOnce(&mut LayoutProfiles),
