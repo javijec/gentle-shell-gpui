@@ -224,8 +224,10 @@ mod tests {
 
     #[test]
     fn reopening_keeps_the_selected_preset_instead_of_resetting_it() {
-        let mut profiles = LayoutProfiles::default();
-        profiles.active = LayoutPreset::Expanded;
+        let mut profiles = LayoutProfiles {
+            active: LayoutPreset::Expanded,
+            ..LayoutProfiles::default()
+        };
         profiles.expanded.place(LayoutTool::Git, ToolPlacement::Title);
         let saved = SavedState {
             presentation: Some(profiles.clone()),
