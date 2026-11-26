@@ -377,31 +377,7 @@ impl Render for Workspace {
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.on_open_palette(&OpenPalette, window, cx)
                                             })),
-                                    )
-                                    .when(has_files_sidebar, |d| {
-                                        d.child(
-                                            Button::new("toggle-sidebar")
-                                                .ghost()
-                                                .xsmall()
-                                                .icon(Icon::new(if self.sidebar_visible {
-                                                    IconName::PanelRightClose
-                                                } else {
-                                                    IconName::PanelRightOpen
-                                                }))
-                                                .tooltip(format!(
-                                                    "{} tools sidebar ({})",
-                                                    if self.sidebar_visible {
-                                                        "Hide"
-                                                    } else {
-                                                        "Show"
-                                                    },
-                                                    ui::shortcut("B")
-                                                ))
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.toggle_sidebar(cx)
-                                                })),
-                                        )
-                                    }),
+                                    ),
                             ),
                     ),
             )
