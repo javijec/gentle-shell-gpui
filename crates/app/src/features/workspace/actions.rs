@@ -209,7 +209,7 @@ impl Workspace {
 
     /// Files and Git only poll while their shared view is visible.
     pub fn files_sidebar_visible(&self) -> bool {
-        self.sidebar_visible && !self.sidebar_memory_active
+        self.sidebar_visible && !self.sidebar_memory_active && !self.sidebar_history_active
     }
 
     pub(super) fn on_open_providers(
