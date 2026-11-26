@@ -421,6 +421,8 @@ pub struct Workspace {
     sidebar: Option<Entity<FileTreeView>>,
     sidebar_memory_active: bool,
     sidebar_memory: Option<(Entity<MemoryView>, Subscription)>,
+    sidebar_history_active: bool,
+    sidebar_history: Option<(PathBuf, Entity<crate::features::history::HistoryView>)>,
     sidebar_visible: bool,
     tabs_sidebar_motion: sidebar_motion::SidebarMotion,
     files_sidebar_motion: sidebar_motion::SidebarMotion,
@@ -577,6 +579,8 @@ impl Workspace {
             sidebar: None,
             sidebar_memory_active: false,
             sidebar_memory: None,
+            sidebar_history_active: false,
+            sidebar_history: None,
             sidebar_visible: saved.sidebar,
             tabs_sidebar_motion: Default::default(),
             files_sidebar_motion: Default::default(),
@@ -744,8 +748,11 @@ impl Workspace {
         });
         self.sidebar = Some(view);
         self.sidebar_memory = None;
+        self.sidebar_history = None;
         if self.sidebar_memory_active {
             self.ensure_sidebar_memory(window, cx);
+        } else if self.sidebar_history_active {
+            self.ensure_sidebar_history(self.root().to_path_buf(), window, cx);
         }
         cx.notify();
     }
@@ -804,12 +811,9 @@ impl Workspace {
         self.place_preview(id, window, cx);
     }
 
-    /// The Git pane of the repository `cwd` is in, placed like a preview: it
-    /// takes the place of the tab's preview pane, if any.
+    /// Show the repository's Git history in the shared right sidebar.
     pub fn open_history(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(id) = self.new_factory_pane(PaneKind::History, cwd, window, cx) {
-            self.place_preview(id, window, cx);
-        }
+        self.show_sidebar_history(cwd, window, cx);
     }
 
     /// Open `path` in a new split right of the focused pane (its own tab when

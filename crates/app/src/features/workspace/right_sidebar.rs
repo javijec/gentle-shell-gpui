@@ -9,11 +9,14 @@ enum Tool {
     Files,
     Git,
     Engram,
+    History,
 }
 
 impl Workspace {
     fn active_right_tool(&self, cx: &App) -> Tool {
-        if self.sidebar_memory_active {
+        if self.sidebar_history_active {
+            Tool::History
+        } else if self.sidebar_memory_active {
             Tool::Engram
         } else if self
             .sidebar
@@ -27,7 +30,9 @@ impl Workspace {
     }
 
     pub(super) fn right_sidebar_view(&self) -> Option<AnyView> {
-        if self.sidebar_memory_active {
+        if self.sidebar_history_active {
+            self.sidebar_history.as_ref().map(|(_, view)| view.clone().into())
+        } else if self.sidebar_memory_active {
             self.sidebar_memory.as_ref().map(|(view, _)| view.clone().into())
         } else {
             self.sidebar.clone().map(Into::into)
@@ -56,6 +61,36 @@ impl Workspace {
         self.sidebar_memory = Some((view, subscription));
     }
 
+    pub(super) fn ensure_sidebar_history(
+        &mut self,
+        cwd: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.sidebar_history.as_ref().is_some_and(|(path, _)| *path == cwd) {
+            return;
+        }
+        let view = cx.new(|cx| crate::features::history::HistoryView::new(cwd.clone(), window, cx));
+        self.sidebar_history = Some((cwd, view));
+    }
+
+    pub(super) fn show_sidebar_history(
+        &mut self,
+        cwd: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ensure_sidebar_history(cwd, window, cx);
+        self.sidebar_history_active = true;
+        self.sidebar_memory_active = false;
+        if self.sidebar_visible {
+            cx.emit(WorkspaceEvent::FilesVisibilityChanged(false));
+            cx.notify();
+        } else {
+            self.toggle_sidebar(cx);
+        }
+    }
+
     fn select_right_tool(
         &mut self,
         tool: Tool,
@@ -66,6 +101,12 @@ impl Workspace {
             self.toggle_sidebar(cx);
             return;
         }
+        if tool == Tool::History {
+            let cwd = self.root().to_path_buf();
+            self.show_sidebar_history(cwd, window, cx);
+            return;
+        }
+        self.sidebar_history_active = false;
         self.sidebar_memory_active = tool == Tool::Engram;
         if self.sidebar_memory_active {
             self.ensure_sidebar_memory(window, cx);
@@ -123,6 +164,7 @@ impl Workspace {
             (Tool::Files, IconName::Files, "Files"),
             (Tool::Git, IconName::GitBranch, "Git"),
             (Tool::Engram, IconName::Brain, "Engram"),
+            (Tool::History, IconName::GitGraph, "Git history"),
         ]
         .into_iter()
         .enumerate()
@@ -164,15 +206,15 @@ impl Workspace {
                 .into_iter()
                 .enumerate()
         {
+            // History is now a docked tool in the top group.
+            if action == PaletteAction::History {
+                continue;
+            }
             let selected = match &action {
+                PaletteAction::Devices => self.devices.read(cx).visible(),
                 PaletteAction::Docs => matches!(self.overlay, Some((Overlay::Docs(_), _))),
                 PaletteAction::Usage => matches!(self.overlay, Some((Overlay::Usage(_), _))),
                 _ => false,
-            };
-            let label = if action == PaletteAction::History {
-                "Git history".to_string()
-            } else {
-                label
             };
             let tooltip = format!("{label} — {detail}");
             commands = commands.child(
@@ -193,7 +235,9 @@ impl Workspace {
                         if this.overlay.is_some() {
                             this.close_overlay(window, cx);
                         }
-                        if !selected {
+                        if action == PaletteAction::Devices {
+                            this.devices.update(cx, |panel, cx| panel.toggle(cx));
+                        } else if !selected {
                             this.run_palette_action(action.clone(), window, cx);
                         }
                     }))
