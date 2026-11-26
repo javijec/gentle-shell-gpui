@@ -80,6 +80,8 @@ pub struct ToolShortcut {
 pub struct LayoutProfile {
     pub shortcuts: Vec<ToolShortcut>,
     pub tabs_visible: bool,
+    #[serde(default)]
+    pub title_utilities: bool,
     pub tab_layout: TabLayout,
     pub workspace_visible: bool,
     pub sidebar_visible: bool,
@@ -101,6 +103,7 @@ impl LayoutProfile {
                     } else { ToolPlacement::Hidden },
             }).collect(),
             tabs_visible: expanded,
+            title_utilities: expanded,
             tab_layout: if expanded { TabLayout::Vertical } else { TabLayout::Horizontal },
             workspace_visible: expanded,
             sidebar_visible: expanded,

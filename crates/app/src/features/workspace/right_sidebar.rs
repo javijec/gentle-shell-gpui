@@ -214,6 +214,7 @@ impl Workspace {
     ) {
         profiles.normalize();
         let p = profiles.current().clone();
+        let switched = profiles.active != self.layout_profiles.active;
         let old_nav = self.navigation_visible();
         let old_dock = self.active_right_tool(cx);
         self.cancel_workspace_rename_state(cx);
@@ -236,6 +237,16 @@ impl Workspace {
                 tree.update(cx, |tree, cx| {
                     tree.select_sidebar_tool(p.dock == LayoutTool::Git, window, cx);
                 });
+            }
+        }
+        if switched && !p.sidebar_visible {
+            // A focus layout hides auxiliary surfaces without closing any
+            // agent session, device, or central work tab.
+            if self.devices.read(cx).visible() {
+                self.devices.update(cx, |panel, cx| panel.hide(cx));
+            }
+            if let Some(session) = self.active_session() {
+                session.update(cx, |session, cx| session.close_agents_panel(cx));
             }
         }
         if self.sidebar_visible != p.sidebar_visible {

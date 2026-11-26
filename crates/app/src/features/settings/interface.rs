@@ -88,6 +88,17 @@ impl SettingsView {
                         }, cx);
                     }))))
             .child(h_flex().gap_2().pt_2()
+                .child(div().flex_1().text_sm().child("Original title utilities"))
+                .child(Button::new("layout-title-utilities").ghost().small()
+                    .selected(profile.title_utilities)
+                    .label(if profile.title_utilities { "Visible" } else { "Hidden" })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.edit_presentation(|p| {
+                            let p = p.current_mut();
+                            p.title_utilities = !p.title_utilities;
+                        }, cx);
+                    }))))
+            .child(h_flex().gap_2().pt_2()
                 .child(div().flex_1().text_sm().child("Right panel"))
                 .child(Button::new("layout-right-panel").ghost().small()
                     .selected(profile.sidebar_visible)
