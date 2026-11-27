@@ -2098,7 +2098,6 @@ impl Render for SessionView {
             .relative()
             .size_full()
             .child(main)
-            .children(self.render_agents_panel(cx))
             .children(self.genui.render_pinned(cx))
     }
 }

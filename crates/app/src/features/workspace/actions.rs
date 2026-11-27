@@ -294,7 +294,15 @@ impl Workspace {
             Some((Overlay::Onboarding(view), _)) if view.read(cx).busy() => {}
             Some((Overlay::Welcome(view), _)) if view.read(cx).busy(cx) => {}
             Some(_) => self.close_overlay(window, cx),
-            None => cx.propagate(),
+            None => {
+                if let Some(session) = self.agents_overlay_session(cx) {
+                    session.update(cx, |session, cx| session.close_agents_panel(cx));
+                    self.focus_active(window, cx);
+                    cx.notify();
+                } else {
+                    cx.propagate();
+                }
+            }
         }
     }
 
